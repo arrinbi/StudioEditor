@@ -26,6 +26,7 @@ export async function saveProjectStateToIDB(project: ProjectState): Promise<void
       height: p.height,
       activeLayerId: p.activeLayerId,
       layers: p.layers.map(serializeLayer),
+      ocrRegions: p.ocrRegions || [],
     }));
 
     const activeP = project.pages.find((p) => p.id === project.activePageId) || project.pages[0];
@@ -58,6 +59,7 @@ export async function loadProjectFromIDB(id: string): Promise<ProjectState | nul
       const pages = await Promise.all(
         saved.pages.map(async (sp) => {
           const deserializedLayers = await Promise.all(sp.layers.map((l) => deserializeLayer(l)));
+          const ocrRegions = sp.ocrRegions || [];
           const pageObj = {
             id: sp.id,
             name: sp.name,
@@ -66,6 +68,8 @@ export async function loadProjectFromIDB(id: string): Promise<ProjectState | nul
             activeLayerId: sp.activeLayerId,
             layers: deserializedLayers,
             selection: null,
+            ocrRegions,
+            selectedOcrRegionId: ocrRegions.length > 0 ? ocrRegions[0].id : null,
           };
           const thumbnailDataUrl = renderPageThumbnail(pageObj);
           return {

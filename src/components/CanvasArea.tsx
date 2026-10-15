@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText, Transformer } from 'react-konva';
 import Konva from 'konva';
-import type { DocumentState, ViewportState, ToolType, TextLayer } from '../types/editor';
+import type { DocumentState, ViewportState, ToolType, TextLayer, OcrRegion } from '../types/editor';
 import { CanvasScrollbar } from './CanvasScrollbar';
 import {
   calculateScrollBounds,
@@ -81,6 +81,13 @@ interface CanvasAreaProps {
   onEditTextLayer?: (layerId: string) => void;
   editingTextLayerId?: string | null;
   onCommitTextEdit?: (layerId: string, newText: string) => void;
+  ocrRegions?: OcrRegion[];
+  selectedOcrRegionId?: string | null;
+  onSelectOcrRegion?: (regionId: string) => void;
+  onUpdateOcrRegionBBox?: (
+    regionId: string,
+    newBBox: { x: number; y: number; width: number; height: number }
+  ) => void;
 }
 
 export const CanvasArea: React.FC<CanvasAreaProps> = ({
@@ -97,6 +104,10 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   onEditTextLayer,
   editingTextLayerId,
   onCommitTextEdit,
+  ocrRegions,
+  selectedOcrRegionId,
+  onSelectOcrRegion,
+  onUpdateOcrRegionBBox,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
@@ -105,7 +116,9 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   const lastPanPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const transformerRef = useRef<Konva.Transformer>(null);
+  const ocrTransformerRef = useRef<Konva.Transformer>(null);
   const layerNodesRef = useRef<Map<string, Konva.Node>>(new Map());
+  const ocrNodesRef = useRef<Map<string, Konva.Rect>>(new Map());
 
   useEffect(() => {
     const updateSize = () => {
@@ -191,6 +204,20 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
     }
   }, [document.activeLayerId, document.layers, activeTool, activeLayer]);
 
+  useEffect(() => {
+    if (ocrTransformerRef.current && selectedOcrRegionId) {
+      const node = ocrNodesRef.current.get(selectedOcrRegionId);
+      if (node) {
+        ocrTransformerRef.current.nodes([node]);
+        ocrTransformerRef.current.getLayer()?.batchDraw();
+      } else {
+        ocrTransformerRef.current.nodes([]);
+      }
+    } else if (ocrTransformerRef.current) {
+      ocrTransformerRef.current.nodes([]);
+    }
+  }, [selectedOcrRegionId, ocrRegions]);
+
   const getDocCoordinates = (stage: Konva.Stage): { x: number; y: number } | null => {
     const pointer = stage.getPointerPosition();
     if (!pointer) return null;
@@ -205,7 +232,6 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
     const stage = e.target.getStage();
     if (!stage) return;
 
-    // Zoom if Ctrl/Cmd key is pressed or activeTool === 'zoom'
     if (e.evt.ctrlKey || e.evt.metaKey) {
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
@@ -231,7 +257,6 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
       return;
     }
 
-    // Horizontal scroll if Shift key is pressed or deltaX is non-zero
     if (e.evt.shiftKey || e.evt.deltaX !== 0) {
       const delta = e.evt.deltaX !== 0 ? e.evt.deltaX : e.evt.deltaY;
       let newPanX = viewport.panX - delta;
@@ -247,7 +272,6 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
       return;
     }
 
-    // Vertical scroll (default wheel action)
     const delta = e.evt.deltaY;
     let newPanY = viewport.panY - delta;
 
@@ -351,6 +375,25 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
         rotation: node.rotation(),
         scaleX: node.scaleX(),
         scaleY: node.scaleY(),
+      });
+    }
+  };
+
+  const handleOcrTransformEnd = (regionId: string, node: Konva.Rect) => {
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    const newWidth = Math.max(5, Math.round(node.width() * scaleX));
+    const newHeight = Math.max(5, Math.round(node.height() * scaleY));
+
+    node.scaleX(1);
+    node.scaleY(1);
+
+    if (onUpdateOcrRegionBBox) {
+      onUpdateOcrRegionBBox(regionId, {
+        x: Math.round(node.x()),
+        y: Math.round(node.y()),
+        width: newWidth,
+        height: newHeight,
       });
     }
   };
@@ -506,6 +549,65 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
               }}
             />
           </Layer>
+
+          {/* OCR Bounding Boxes Layer */}
+          {ocrRegions && ocrRegions.length > 0 && (
+            <Layer>
+              {ocrRegions.map((region, idx) => {
+                const isSelected = region.id === selectedOcrRegionId;
+                const labelText = `[${idx + 1}] ${region.text.slice(0, 16)}${region.text.length > 16 ? '...' : ''}`;
+                return (
+                  <React.Fragment key={region.id}>
+                    <Rect
+                      ref={(node) => {
+                        if (node) ocrNodesRef.current.set(region.id, node);
+                        else ocrNodesRef.current.delete(region.id);
+                      }}
+                      x={region.bbox.x}
+                      y={region.bbox.y}
+                      width={region.bbox.width}
+                      height={region.bbox.height}
+                      stroke={isSelected ? '#0ea5e9' : '#f59e0b'}
+                      strokeWidth={isSelected ? 2 / viewport.zoom : 1.5 / viewport.zoom}
+                      dash={isSelected ? undefined : [4 / viewport.zoom, 4 / viewport.zoom]}
+                      fill={isSelected ? 'rgba(14, 165, 233, 0.25)' : 'rgba(245, 158, 11, 0.12)'}
+                      draggable={isSelected}
+                      onClick={(e) => {
+                        e.cancelBubble = true;
+                        onSelectOcrRegion?.(region.id);
+                      }}
+                      onTap={(e) => {
+                        e.cancelBubble = true;
+                        onSelectOcrRegion?.(region.id);
+                      }}
+                      onDragEnd={(e) => handleOcrTransformEnd(region.id, e.target as Konva.Rect)}
+                      onTransformEnd={(e) => handleOcrTransformEnd(region.id, e.target as Konva.Rect)}
+                    />
+                    <KonvaText
+                      x={region.bbox.x}
+                      y={Math.max(0, region.bbox.y - 14 / viewport.zoom)}
+                      text={labelText}
+                      fontSize={11 / viewport.zoom}
+                      fontFamily="sans-serif"
+                      fill={isSelected ? '#38bdf8' : '#fbbf24'}
+                      listening={false}
+                    />
+                  </React.Fragment>
+                );
+              })}
+
+              <Transformer
+                ref={ocrTransformerRef}
+                rotateEnabled={false}
+                boundBoxFunc={(oldBox, newBox) => {
+                  if (Math.abs(newBox.width) < 5 || Math.abs(newBox.height) < 5) {
+                    return oldBox;
+                  }
+                  return newBox;
+                }}
+              />
+            </Layer>
+          )}
 
           {document.selection && (
             <Layer>

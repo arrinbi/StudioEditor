@@ -56,6 +56,13 @@ import {
   applyAdjustmentsToActiveLayer,
   type AdjustmentSettings,
 } from './core/adjustments';
+import {
+  updateOcrRegionText,
+  updateOcrRegionBBox,
+  deleteOcrRegion,
+  clearAllOcrRegions,
+  selectOcrRegion,
+} from './core/ocr';
 import { calculateFitToScreenViewport } from './utils/viewport';
 import { saveProjectStateToIDB, getProjectsFromIDB, loadProjectFromIDB } from './services/storage';
 
@@ -101,6 +108,7 @@ export function App() {
     panY: 50,
   });
 
+  const [rightPanelTab, setRightPanelTab] = useState<'pages' | 'layers' | 'ocr' | 'properties' | 'history'>('pages');
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
@@ -242,6 +250,30 @@ export function App() {
     },
     [updateActivePage]
   );
+
+  // OCR Action Handlers
+  const handleSelectOcrRegion = useCallback((regionId: string | null) => {
+    updateActivePage((prev) => selectOcrRegion(prev, regionId));
+  }, [updateActivePage]);
+
+  const handleUpdateOcrText = useCallback((regionId: string, newText: string) => {
+    updateActivePage((prev) => updateOcrRegionText(prev, regionId, newText), 'Edit OCR Text');
+  }, [updateActivePage]);
+
+  const handleUpdateOcrBBox = useCallback((
+    regionId: string,
+    newBBox: { x: number; y: number; width: number; height: number }
+  ) => {
+    updateActivePage((prev) => updateOcrRegionBBox(prev, regionId, newBBox), 'Resize OCR Region');
+  }, [updateActivePage]);
+
+  const handleDeleteOcrRegion = useCallback((regionId: string) => {
+    updateActivePage((prev) => deleteOcrRegion(prev, regionId), 'Delete OCR Region');
+  }, [updateActivePage]);
+
+  const handleClearAllOcrRegions = useCallback(() => {
+    updateActivePage((prev) => clearAllOcrRegions(prev), 'Clear OCR Regions');
+  }, [updateActivePage]);
 
   const handleFitScreen = useCallback(() => {
     const fit = calculateFitToScreenViewport(
@@ -985,6 +1017,7 @@ export function App() {
         onRotateDocument={handleRotateDocument}
         onFlipDocument={handleFlipDocument}
         onOpenAdjustments={() => setIsAdjustmentsModalOpen(true)}
+        onOpenOcrPanel={() => setRightPanelTab('ocr')}
       />
 
       {exportMessage && (
@@ -1034,6 +1067,10 @@ export function App() {
           onEditTextLayer={(id) => setEditingTextLayerId(id)}
           editingTextLayerId={editingTextLayerId}
           onCommitTextEdit={handleCommitTextEdit}
+          ocrRegions={activePage.ocrRegions}
+          selectedOcrRegionId={activePage.selectedOcrRegionId}
+          onSelectOcrRegion={handleSelectOcrRegion}
+          onUpdateOcrRegionBBox={handleUpdateOcrBBox}
         />
 
         <RightPanels
@@ -1068,6 +1105,15 @@ export function App() {
           onDuplicatePage={handleDuplicatePage}
           onDeletePage={handleDeletePage}
           onReorderPage={handleReorderPage}
+          activePage={activePage}
+          onUpdatePage={updateActivePage}
+          onSelectOcrRegion={handleSelectOcrRegion}
+          onUpdateOcrText={handleUpdateOcrText}
+          onUpdateOcrBBox={handleUpdateOcrBBox}
+          onDeleteOcrRegion={handleDeleteOcrRegion}
+          onClearAllOcrRegions={handleClearAllOcrRegions}
+          activeTab={rightPanelTab}
+          onTabChange={setRightPanelTab}
         />
       </div>
 

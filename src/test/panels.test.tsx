@@ -80,7 +80,7 @@ describe('Right Dockable Panels', () => {
       eraserOpacity: 1,
     };
 
-    const { getByTitle, queryByText } = render(
+    const { getByTitle } = render(
       <RightPanels
         activeTool="brush"
         toolSettings={settings}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MenuBar } from './components/MenuBar';
+import { ToolOptionsBar } from './components/ToolOptionsBar';
 import { Toolbar } from './components/Toolbar';
 import { StatusBar } from './components/StatusBar';
 import { CanvasArea } from './components/CanvasArea';
@@ -245,21 +246,21 @@ export function App() {
     }
   };
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     commitDocChange('Select All', {
       ...document,
       selection: { x: 0, y: 0, width: document.width, height: document.height },
     });
-  };
+  }, [commitDocChange, document]);
 
-  const handleDeselect = () => {
+  const handleDeselect = useCallback(() => {
     if (document.selection) {
       commitDocChange('Deselect', {
         ...document,
         selection: null,
       });
     }
-  };
+  }, [commitDocChange, document]);
 
   const handleClearSelectionContent = () => {
     if (clearSelectionContent(document)) {
@@ -371,6 +372,68 @@ export function App() {
     const updated = document.layers.map((l) => (l.id === id ? { ...l, opacity } : l));
     setDocument({ ...document, layers: updated });
   };
+
+  // Keyboard Hotkeys Manager
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+      if (ctrlOrCmd && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+        return;
+      }
+
+      if (ctrlOrCmd && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      if (ctrlOrCmd && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        handleSelectAll();
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        handleDeselect();
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'v':
+          setActiveTool('select');
+          break;
+        case 'b':
+          setActiveTool('brush');
+          break;
+        case 'e':
+          setActiveTool('eraser');
+          break;
+        case 'm':
+          setActiveTool('rectangle-select');
+          break;
+        case 'h':
+          setActiveTool('hand');
+          break;
+        case 'z':
+          setActiveTool('zoom');
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, handleSelectAll, handleDeselect]);
 
   const handleCanvasPointerDown = (docX: number, docY: number) => {
     const activeLayer = document.layers.find((l) => l.id === document.activeLayerId);
@@ -499,8 +562,23 @@ export function App() {
         documentName={document.name}
       />
 
+      <ToolOptionsBar
+        activeTool={activeTool}
+        settings={toolSettings}
+        onSettingsChange={(newSet) => setToolSettings((prev) => ({ ...prev, ...newSet }))}
+        hasSelection={!!document.selection}
+        onClearSelectionContent={handleClearSelectionContent}
+        onFillSelectionContent={handleFillSelectionContent}
+        onDeselect={handleDeselect}
+      />
+
       <div className="flex flex-1 relative overflow-hidden">
-        <Toolbar activeTool={activeTool} onSelectTool={setActiveTool} />
+        <Toolbar
+          activeTool={activeTool}
+          onSelectTool={setActiveTool}
+          currentColor={toolSettings.brushColor}
+          onColorChange={(color) => setToolSettings((prev) => ({ ...prev, brushColor: color }))}
+        />
 
         <CanvasArea
           document={document}

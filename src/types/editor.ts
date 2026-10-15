@@ -4,7 +4,9 @@ export type ToolType =
   | 'eraser'
   | 'rectangle-select'
   | 'hand'
-  | 'zoom';
+  | 'zoom'
+  | 'text'
+  | 'eyedropper';
 
 export type LayerType = 'raster' | 'image' | 'mask' | 'text';
 
@@ -18,6 +20,9 @@ export interface BaseLayer {
   isProtected?: boolean;
   x: number;
   y: number;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
 }
 
 export interface RasterLayer extends BaseLayer {
@@ -46,6 +51,9 @@ export interface TextLayer extends BaseLayer {
   color: string;
   width: number;
   height: number;
+  align?: 'left' | 'center' | 'right';
+  bold?: boolean;
+  italic?: boolean;
 }
 
 export type Layer = RasterLayer | ImageLayer | MaskLayer | TextLayer;
@@ -64,6 +72,11 @@ export interface ToolSettings {
   brushHardness: number;
   eraserSize: number;
   eraserOpacity: number;
+  fontFamily?: string;
+  fontSize?: number;
+  textAlign?: 'left' | 'center' | 'right';
+  textBold?: boolean;
+  textItalic?: boolean;
 }
 
 export interface ViewportState {
@@ -101,6 +114,9 @@ export interface LayerSnapshot {
   isProtected?: boolean;
   x: number;
   y: number;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
   dataUrl?: string;
   imageSrc?: string;
   text?: string;
@@ -109,4 +125,7 @@ export interface LayerSnapshot {
   color?: string;
   width?: number;
   height?: number;
+  align?: 'left' | 'center' | 'right';
+  bold?: boolean;
+  italic?: boolean;
 }

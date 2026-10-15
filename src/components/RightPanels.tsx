@@ -13,6 +13,7 @@ interface RightPanelsProps {
   onClearSelectionContent: () => void;
   onFillSelectionContent: () => void;
   onDeselect: () => void;
+  onCropToSelection?: () => void;
   layers: Layer[];
   activeLayerId: string | null;
   onSelectLayer: (id: string) => void;
@@ -160,6 +161,7 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
               onClearSelectionContent={props.onClearSelectionContent}
               onFillSelectionContent={props.onFillSelectionContent}
               onDeselect={props.onDeselect}
+              onCropToSelection={props.onCropToSelection}
             />
           )}
 

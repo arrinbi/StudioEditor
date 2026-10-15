@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Image as KonvaImage, Rect } from 'react-konva';
+import { Stage, Layer, Image as KonvaImage, Rect, Text as KonvaText, Transformer } from 'react-konva';
 import Konva from 'konva';
-import type { DocumentState, ViewportState, ToolType } from '../types/editor';
+import type { DocumentState, ViewportState, ToolType, TextLayer } from '../types/editor';
 
 interface CanvasAreaProps {
   document: DocumentState;
@@ -12,6 +12,14 @@ interface CanvasAreaProps {
   onCanvasPointerDown: (docX: number, docY: number, evt: Konva.KonvaEventObject<PointerEvent>) => void;
   onCanvasPointerMove: (docX: number, docY: number, evt: Konva.KonvaEventObject<PointerEvent>) => void;
   onCanvasPointerUp: (docX: number, docY: number, evt: Konva.KonvaEventObject<PointerEvent>) => void;
+  onSelectLayer?: (layerId: string) => void;
+  onUpdateLayerTransform?: (
+    layerId: string,
+    transform: { x: number; y: number; rotation: number; scaleX: number; scaleY: number }
+  ) => void;
+  onEditTextLayer?: (layerId: string) => void;
+  editingTextLayerId?: string | null;
+  onCommitTextEdit?: (layerId: string, newText: string) => void;
 }
 
 export const CanvasArea: React.FC<CanvasAreaProps> = ({
@@ -23,11 +31,23 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   onCanvasPointerDown,
   onCanvasPointerMove,
   onCanvasPointerUp,
+  onSelectLayer,
+  onUpdateLayerTransform,
+  onEditTextLayer,
+  editingTextLayerId,
+  onCommitTextEdit,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
+  const [isDraggingHand, setIsDraggingHand] = useState(false);
   const isDraggingHandRef = useRef(false);
   const lastPanPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const transformerRef = useRef<Konva.Transformer>(null);
+  const layerNodesRef = useRef<Map<string, Konva.Node>>(new Map());
+
+  const [prevEditingId, setPrevEditingId] = useState<string | null>(null);
+  const [inlineEditText, setInlineEditText] = useState('');
 
   useEffect(() => {
     const updateSize = () => {
@@ -42,6 +62,34 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
+
+  const activeLayer = document.layers.find((l) => l.id === document.activeLayerId);
+  const editingLayer = document.layers.find((l) => l.id === editingTextLayerId) as TextLayer | undefined;
+
+  if (editingTextLayerId !== prevEditingId) {
+    setPrevEditingId(editingTextLayerId || null);
+    setInlineEditText(editingLayer ? editingLayer.text : '');
+  }
+
+  useEffect(() => {
+    if (
+      transformerRef.current &&
+      activeLayer &&
+      !activeLayer.locked &&
+      !activeLayer.isProtected &&
+      (activeTool === 'select' || activeTool === 'text')
+    ) {
+      const node = layerNodesRef.current.get(activeLayer.id);
+      if (node) {
+        transformerRef.current.nodes([node]);
+        transformerRef.current.getLayer()?.batchDraw();
+      } else {
+        transformerRef.current.nodes([]);
+      }
+    } else if (transformerRef.current) {
+      transformerRef.current.nodes([]);
+    }
+  }, [document.activeLayerId, document.layers, activeTool, activeLayer]);
 
   const getDocCoordinates = (stage: Konva.Stage): { x: number; y: number } | null => {
     const pointer = stage.getPointerPosition();
@@ -86,6 +134,7 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
 
     if (activeTool === 'hand' || e.evt.button === 1) {
       isDraggingHandRef.current = true;
+      setIsDraggingHand(true);
       lastPanPosRef.current = { x: e.evt.clientX, y: e.evt.clientY };
       return;
     }
@@ -141,6 +190,7 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   const handlePointerUp = (e: Konva.KonvaEventObject<PointerEvent>) => {
     if (isDraggingHandRef.current) {
       isDraggingHandRef.current = false;
+      setIsDraggingHand(false);
       lastPanPosRef.current = null;
       return;
     }
@@ -157,22 +207,39 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   const handlePointerLeave = () => {
     onCursorMove(null);
     isDraggingHandRef.current = false;
+    setIsDraggingHand(false);
   };
+
+  const handleNodeTransformEnd = (layerId: string, node: Konva.Node) => {
+    if (onUpdateLayerTransform) {
+      onUpdateLayerTransform(layerId, {
+        x: node.x(),
+        y: node.y(),
+        rotation: node.rotation(),
+        scaleX: node.scaleX(),
+        scaleY: node.scaleY(),
+      });
+    }
+  };
+
+  const cursorStyle =
+    activeTool === 'hand'
+      ? isDraggingHand
+        ? 'grabbing'
+        : 'grab'
+      : activeTool === 'zoom'
+      ? 'zoom-in'
+      : activeTool === 'eyedropper'
+      ? 'copy'
+      : activeTool === 'text'
+      ? 'text'
+      : 'crosshair';
 
   return (
     <div
       ref={containerRef}
-      className="flex-1 bg-zinc-950 relative overflow-hidden select-none touch-none cursor-crosshair"
-      style={{
-        cursor:
-          activeTool === 'hand'
-            ? isDraggingHandRef.current
-              ? 'grabbing'
-              : 'grab'
-            : activeTool === 'zoom'
-            ? 'zoom-in'
-            : 'crosshair',
-      }}
+      className="flex-1 bg-zinc-950 relative overflow-hidden select-none touch-none"
+      style={{ cursor: cursorStyle }}
     >
       <Stage
         width={containerSize.width}
@@ -214,10 +281,22 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
               return (
                 <KonvaImage
                   key={layer.id}
+                  ref={(node) => {
+                    if (node) layerNodesRef.current.set(layer.id, node);
+                    else layerNodesRef.current.delete(layer.id);
+                  }}
                   x={layer.x}
                   y={layer.y}
+                  rotation={layer.rotation || 0}
+                  scaleX={layer.scaleX || 1}
+                  scaleY={layer.scaleY || 1}
                   image={layer.canvas}
                   opacity={layer.opacity}
+                  draggable={!layer.locked && !layer.isProtected && activeTool === 'select'}
+                  onClick={() => onSelectLayer?.(layer.id)}
+                  onTap={() => onSelectLayer?.(layer.id)}
+                  onDragEnd={(e) => handleNodeTransformEnd(layer.id, e.target)}
+                  onTransformEnd={(e) => handleNodeTransformEnd(layer.id, e.target)}
                 />
               );
             }
@@ -226,18 +305,72 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
               return (
                 <KonvaImage
                   key={layer.id}
+                  ref={(node) => {
+                    if (node) layerNodesRef.current.set(layer.id, node);
+                    else layerNodesRef.current.delete(layer.id);
+                  }}
                   x={layer.x}
                   y={layer.y}
+                  rotation={layer.rotation || 0}
+                  scaleX={layer.scaleX || 1}
+                  scaleY={layer.scaleY || 1}
                   image={layer.image}
                   width={layer.width}
                   height={layer.height}
                   opacity={layer.opacity}
+                  draggable={!layer.locked && !layer.isProtected && activeTool === 'select'}
+                  onClick={() => onSelectLayer?.(layer.id)}
+                  onTap={() => onSelectLayer?.(layer.id)}
+                  onDragEnd={(e) => handleNodeTransformEnd(layer.id, e.target)}
+                  onTransformEnd={(e) => handleNodeTransformEnd(layer.id, e.target)}
+                />
+              );
+            }
+
+            if (layer.type === 'text') {
+              const fontStyle = `${layer.bold ? 'bold ' : ''}${layer.italic ? 'italic' : ''}`.trim() || 'normal';
+              return (
+                <KonvaText
+                  key={layer.id}
+                  ref={(node) => {
+                    if (node) layerNodesRef.current.set(layer.id, node);
+                    else layerNodesRef.current.delete(layer.id);
+                  }}
+                  x={layer.x}
+                  y={layer.y}
+                  rotation={layer.rotation || 0}
+                  scaleX={layer.scaleX || 1}
+                  scaleY={layer.scaleY || 1}
+                  text={layer.text}
+                  fontSize={layer.fontSize}
+                  fontFamily={layer.fontFamily}
+                  fill={layer.color}
+                  width={layer.width}
+                  opacity={layer.opacity}
+                  align={layer.align || 'left'}
+                  fontStyle={fontStyle}
+                  draggable={!layer.locked && !layer.isProtected && (activeTool === 'select' || activeTool === 'text')}
+                  onClick={() => onSelectLayer?.(layer.id)}
+                  onTap={() => onSelectLayer?.(layer.id)}
+                  onDblClick={() => onEditTextLayer?.(layer.id)}
+                  onDragEnd={(e) => handleNodeTransformEnd(layer.id, e.target)}
+                  onTransformEnd={(e) => handleNodeTransformEnd(layer.id, e.target)}
                 />
               );
             }
 
             return null;
           })}
+
+          <Transformer
+            ref={transformerRef}
+            boundBoxFunc={(oldBox, newBox) => {
+              if (Math.abs(newBox.width) < 5 || Math.abs(newBox.height) < 5) {
+                return oldBox;
+              }
+              return newBox;
+            }}
+          />
         </Layer>
 
         {document.selection && (
@@ -255,6 +388,41 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
           </Layer>
         )}
       </Stage>
+
+      {/* Inline Text Editor Overlay */}
+      {editingLayer && editingTextLayerId && (
+        <div
+          className="absolute z-40 bg-zinc-900 border-2 border-sky-500 rounded p-2 shadow-2xl flex flex-col space-y-2 min-w-[200px]"
+          style={{
+            left: Math.max(10, Math.min(containerSize.width - 220, editingLayer.x * viewport.zoom + viewport.panX)),
+            top: Math.max(10, Math.min(containerSize.height - 120, editingLayer.y * viewport.zoom + viewport.panY)),
+          }}
+        >
+          <div className="text-[10px] text-sky-400 font-semibold uppercase tracking-wider">
+            Edit Text
+          </div>
+          <textarea
+            autoFocus
+            value={inlineEditText}
+            onChange={(e) => setInlineEditText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                onCommitTextEdit?.(editingTextLayerId, inlineEditText);
+              }
+            }}
+            rows={3}
+            className="w-full bg-zinc-950 text-zinc-100 p-1.5 rounded text-xs border border-zinc-700 focus:outline-none focus:border-sky-500 font-sans"
+          />
+          <div className="flex justify-end space-x-1">
+            <button
+              onClick={() => onCommitTextEdit?.(editingTextLayerId, inlineEditText)}
+              className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-medium"
+            >
+              Done (Ctrl+Enter)
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

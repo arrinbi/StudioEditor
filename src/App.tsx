@@ -7,6 +7,8 @@ import { CanvasArea } from './components/CanvasArea';
 import { RightPanels } from './components/RightPanels';
 import { NewDocumentModal } from './components/NewDocumentModal';
 import { GuideModal } from './components/GuideModal';
+import { AdjustmentsModal } from './components/AdjustmentsModal';
+import { ResizeCanvasModal } from './components/ResizeCanvasModal';
 import type {
   DocumentState,
   ToolType,
@@ -14,11 +16,14 @@ import type {
   ViewportState,
   RasterLayer,
   ImageLayer,
+  TextLayer,
+  HistoryItem,
 } from './types/editor';
 import {
   createOffscreenCanvas,
   HistoryManager,
   loadImage,
+  sampleCanvasColor,
 } from './core/engine';
 import { drawRasterStroke } from './core/drawing';
 import {
@@ -27,6 +32,17 @@ import {
   translateActiveLayer,
 } from './core/selection';
 import { exportDocumentFile } from './core/export';
+import {
+  cropDocument,
+  resizeCanvas,
+  rotateDocument,
+  flipDocument,
+  type AnchorPosition,
+} from './core/documentOps';
+import {
+  applyAdjustmentsToActiveLayer,
+  type AdjustmentSettings,
+} from './core/adjustments';
 import { calculateFitToScreenViewport } from './utils/viewport';
 import { saveProjectToIDB } from './services/storage';
 
@@ -64,6 +80,11 @@ export function App() {
     brushHardness: 0.8,
     eraserSize: 30,
     eraserOpacity: 1,
+    fontFamily: 'Arial',
+    fontSize: 28,
+    textAlign: 'left',
+    textBold: false,
+    textItalic: false,
   });
 
   const [viewport, setViewport] = useState<ViewportState>({
@@ -75,9 +96,24 @@ export function App() {
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+  const [isAdjustmentsModalOpen, setIsAdjustmentsModalOpen] = useState(false);
+  const [isResizeModalOpen, setIsResizeModalOpen] = useState(false);
+  const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
+
+  // History State
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const historyRef = useRef<HistoryManager>(new HistoryManager());
-  const [, setHistoryTick] = useState(0);
+
+  const syncHistoryState = useCallback(() => {
+    setCanUndo(historyRef.current.canUndo);
+    setCanRedo(historyRef.current.canRedo);
+    setHistoryItems(historyRef.current.items);
+    setHistoryIndex(historyRef.current.currentIndex);
+  }, []);
 
   const isDrawingRef = useRef(false);
   const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -85,8 +121,10 @@ export function App() {
 
   useEffect(() => {
     historyRef.current.recordAction('Initial Canvas', document).then(() => {
-      setHistoryTick((t) => t + 1);
+      syncHistoryState();
     });
+    // Record initial action once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -106,9 +144,9 @@ export function App() {
     async (description: string, newDoc: DocumentState) => {
       setDocument(newDoc);
       await historyRef.current.recordAction(description, newDoc);
-      setHistoryTick((t) => t + 1);
+      syncHistoryState();
     },
-    []
+    [syncHistoryState]
   );
 
   const handleFitScreen = useCallback(() => {
@@ -168,7 +206,7 @@ export function App() {
     };
     historyRef.current = new HistoryManager();
     setDocument(newDoc);
-    historyRef.current.recordAction('Create Document', newDoc).then(() => setHistoryTick((t) => t + 1));
+    historyRef.current.recordAction('Create Document', newDoc).then(() => syncHistoryState());
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -228,37 +266,37 @@ export function App() {
       historyRef.current = new HistoryManager();
       setDocument(newDoc);
       await historyRef.current.recordAction('Open Image', newDoc);
-      setHistoryTick((t) => t + 1);
+      syncHistoryState();
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  const handleExport = (format: 'png' | 'jpg') => {
+  const handleExport = (format: 'png' | 'jpg' | 'webp') => {
     exportDocumentFile(document, format);
   };
 
-  const handleUndo = async () => {
+  const handleUndo = useCallback(async () => {
     const restored = await historyRef.current.undo(document);
     if (restored) {
       setDocument(restored);
-      setHistoryTick((t) => t + 1);
+      syncHistoryState();
     }
-  };
+  }, [document, syncHistoryState]);
 
-  const handleRedo = async () => {
+  const handleRedo = useCallback(async () => {
     const restored = await historyRef.current.redo(document);
     if (restored) {
       setDocument(restored);
-      setHistoryTick((t) => t + 1);
+      syncHistoryState();
     }
-  };
+  }, [document, syncHistoryState]);
 
   const handleJumpHistory = async (index: number) => {
     const restored = await historyRef.current.jumpTo(index, document);
     if (restored) {
       setDocument(restored);
-      setHistoryTick((t) => t + 1);
+      syncHistoryState();
     }
   };
 
@@ -289,6 +327,46 @@ export function App() {
       commitDocChange('Fill Selection', { ...document });
     }
   };
+
+  // Document Operations
+  const handleCropToSelection = useCallback(() => {
+    if (document.selection) {
+      const cropped = cropDocument(document, document.selection);
+      commitDocChange('Crop Canvas', cropped);
+    }
+  }, [document, commitDocChange]);
+
+  const handleResizeCanvas = useCallback(
+    (newW: number, newH: number, anchor: AnchorPosition) => {
+      const resized = resizeCanvas(document, newW, newH, anchor);
+      commitDocChange('Resize Canvas', resized);
+    },
+    [document, commitDocChange]
+  );
+
+  const handleRotateDocument = useCallback(
+    (degrees: 90 | -90 | 180) => {
+      const rotated = rotateDocument(document, degrees);
+      commitDocChange(`Rotate Canvas ${degrees}°`, rotated);
+    },
+    [document, commitDocChange]
+  );
+
+  const handleFlipDocument = useCallback(
+    (direction: 'horizontal' | 'vertical') => {
+      const flipped = flipDocument(document, direction);
+      commitDocChange(`Flip Canvas ${direction}`, flipped);
+    },
+    [document, commitDocChange]
+  );
+
+  const handleApplyAdjustments = useCallback(
+    (settings: AdjustmentSettings) => {
+      const adjusted = applyAdjustmentsToActiveLayer(document, settings);
+      commitDocChange('Apply Adjustments', adjusted);
+    },
+    [document, commitDocChange]
+  );
 
   const handleAddLayer = () => {
     const newCanvas = createOffscreenCanvas(document.width, document.height);
@@ -342,20 +420,39 @@ export function App() {
         layers: [...document.layers, dupLayer],
         activeLayerId: dupLayer.id,
       });
+    } else if (target.type === 'text') {
+      const dupLayer: TextLayer = {
+        ...target,
+        id: 'text_dup_' + Date.now(),
+        name: `${target.name} Copy`,
+        isProtected: false,
+        locked: false,
+        x: target.x + 20,
+        y: target.y + 20,
+      };
+
+      commitDocChange('Duplicate Layer', {
+        ...document,
+        layers: [...document.layers, dupLayer],
+        activeLayerId: dupLayer.id,
+      });
     }
   };
 
-  const handleDeleteLayer = (id: string) => {
-    const target = document.layers.find((l) => l.id === id);
-    if (!target || target.isProtected || document.layers.length <= 1) return;
+  const handleDeleteLayer = useCallback(
+    (id: string) => {
+      const target = document.layers.find((l) => l.id === id);
+      if (!target || target.isProtected || document.layers.length <= 1) return;
 
-    const remaining = document.layers.filter((l) => l.id !== id);
-    commitDocChange('Delete Layer', {
-      ...document,
-      layers: remaining,
-      activeLayerId: remaining[remaining.length - 1].id,
-    });
-  };
+      const remaining = document.layers.filter((l) => l.id !== id);
+      commitDocChange('Delete Layer', {
+        ...document,
+        layers: remaining,
+        activeLayerId: remaining[remaining.length - 1].id,
+      });
+    },
+    [document, commitDocChange]
+  );
 
   const handleToggleVisibility = (id: string) => {
     const updated = document.layers.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l));
@@ -387,6 +484,81 @@ export function App() {
   const handleOpacityChange = (id: string, opacity: number) => {
     const updated = document.layers.map((l) => (l.id === id ? { ...l, opacity } : l));
     setDocument({ ...document, layers: updated });
+  };
+
+  const handleUpdateLayerTransform = useCallback(
+    (
+      layerId: string,
+      transform: { x: number; y: number; rotation: number; scaleX: number; scaleY: number }
+    ) => {
+      const target = document.layers.find((l) => l.id === layerId);
+      if (!target || target.locked || target.isProtected) return;
+
+      const updatedLayers = document.layers.map((l) => {
+        if (l.id === layerId) {
+          return {
+            ...l,
+            x: Math.round(transform.x),
+            y: Math.round(transform.y),
+            rotation: transform.rotation,
+            scaleX: transform.scaleX,
+            scaleY: transform.scaleY,
+          };
+        }
+        return l;
+      });
+
+      commitDocChange('Transform Layer', {
+        ...document,
+        layers: updatedLayers,
+      });
+    },
+    [document, commitDocChange]
+  );
+
+  const handleCommitTextEdit = (layerId: string, newText: string) => {
+    const updatedLayers = document.layers.map((l) => {
+      if (l.id === layerId && l.type === 'text') {
+        return {
+          ...l,
+          text: newText,
+        };
+      }
+      return l;
+    });
+
+    commitDocChange('Edit Text', {
+      ...document,
+      layers: updatedLayers,
+    });
+    setEditingTextLayerId(null);
+  };
+
+  const handleUpdateTextSettings = (newSettings: Partial<ToolSettings>) => {
+    setToolSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      if (document.activeLayerId) {
+        const activeL = document.layers.find((l) => l.id === document.activeLayerId);
+        if (activeL && activeL.type === 'text' && !activeL.locked && !activeL.isProtected) {
+          const updatedLayers = document.layers.map((l) => {
+            if (l.id === activeL.id) {
+              return {
+                ...l,
+                fontFamily: updated.fontFamily || (l as TextLayer).fontFamily,
+                fontSize: updated.fontSize || (l as TextLayer).fontSize,
+                color: updated.brushColor || (l as TextLayer).color,
+                align: updated.textAlign || (l as TextLayer).align,
+                bold: updated.textBold !== undefined ? updated.textBold : (l as TextLayer).bold,
+                italic: updated.textItalic !== undefined ? updated.textItalic : (l as TextLayer).italic,
+              };
+            }
+            return l;
+          });
+          setDocument((prevDoc) => ({ ...prevDoc, layers: updatedLayers }));
+        }
+      }
+      return updated;
+    });
   };
 
   // Keyboard Hotkeys Manager
@@ -422,7 +594,15 @@ export function App() {
 
       if (e.key === 'Escape') {
         handleDeselect();
+        setEditingTextLayerId(null);
         return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (document.activeLayerId) {
+          handleDeleteLayer(document.activeLayerId);
+          return;
+        }
       }
 
       switch (e.key.toLowerCase()) {
@@ -434,6 +614,12 @@ export function App() {
           break;
         case 'e':
           setActiveTool('eraser');
+          break;
+        case 't':
+          setActiveTool('text');
+          break;
+        case 'i':
+          setActiveTool('eyedropper');
           break;
         case 'm':
           setActiveTool('rectangle-select');
@@ -449,10 +635,46 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleSelectAll, handleDeselect]);
+  }, [handleUndo, handleRedo, handleSelectAll, handleDeselect, handleDeleteLayer, document.activeLayerId]);
 
   const handleCanvasPointerDown = (docX: number, docY: number) => {
     const activeLayer = document.layers.find((l) => l.id === document.activeLayerId);
+
+    if (activeTool === 'eyedropper') {
+      const sampledColor = sampleCanvasColor(document, docX, docY);
+      setToolSettings((prev) => ({ ...prev, brushColor: sampledColor }));
+      return;
+    }
+
+    if (activeTool === 'text') {
+      const newTextLayer: TextLayer = {
+        id: 'text_' + Date.now(),
+        name: `Text ${document.layers.length + 1}`,
+        type: 'text',
+        visible: true,
+        locked: false,
+        opacity: 1,
+        x: Math.round(docX),
+        y: Math.round(docY),
+        text: 'Type text here...',
+        fontSize: toolSettings.fontSize || 28,
+        fontFamily: toolSettings.fontFamily || 'Arial',
+        color: toolSettings.brushColor || '#000000',
+        width: 250,
+        height: 60,
+        align: toolSettings.textAlign || 'left',
+        bold: toolSettings.textBold,
+        italic: toolSettings.textItalic,
+      };
+
+      commitDocChange('Add Text Layer', {
+        ...document,
+        layers: [...document.layers, newTextLayer],
+        activeLayerId: newTextLayer.id,
+      });
+      setEditingTextLayerId(newTextLayer.id);
+      return;
+    }
 
     if (activeTool === 'brush' || activeTool === 'eraser') {
       if (!activeLayer || activeLayer.type !== 'raster' || activeLayer.locked) return;
@@ -552,6 +774,8 @@ export function App() {
     }
   };
 
+  const activeLayerObj = document.layers.find((l) => l.id === document.activeLayerId) || null;
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-zinc-900 select-none">
       <input
@@ -568,8 +792,8 @@ export function App() {
         onExport={handleExport}
         onUndo={handleUndo}
         onRedo={handleRedo}
-        canUndo={historyRef.current.canUndo}
-        canRedo={historyRef.current.canRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
         onSelectAll={handleSelectAll}
         onDeselect={handleDeselect}
         onAddLayer={handleAddLayer}
@@ -577,16 +801,23 @@ export function App() {
         onZoom100={handleZoom100}
         onOpenGuide={() => setIsGuideModalOpen(true)}
         documentName={document.name}
+        hasSelection={!!document.selection}
+        onCropToSelection={handleCropToSelection}
+        onOpenResizeCanvas={() => setIsResizeModalOpen(true)}
+        onRotateDocument={handleRotateDocument}
+        onFlipDocument={handleFlipDocument}
+        onOpenAdjustments={() => setIsAdjustmentsModalOpen(true)}
       />
 
       <ToolOptionsBar
         activeTool={activeTool}
         settings={toolSettings}
-        onSettingsChange={(newSet) => setToolSettings((prev) => ({ ...prev, ...newSet }))}
+        onSettingsChange={handleUpdateTextSettings}
         hasSelection={!!document.selection}
         onClearSelectionContent={handleClearSelectionContent}
         onFillSelectionContent={handleFillSelectionContent}
         onDeselect={handleDeselect}
+        onCropToSelection={handleCropToSelection}
       />
 
       <div className="flex flex-1 relative overflow-hidden">
@@ -594,7 +825,7 @@ export function App() {
           activeTool={activeTool}
           onSelectTool={setActiveTool}
           currentColor={toolSettings.brushColor}
-          onColorChange={(color) => setToolSettings((prev) => ({ ...prev, brushColor: color }))}
+          onColorChange={(color) => handleUpdateTextSettings({ brushColor: color })}
         />
 
         <CanvasArea
@@ -606,16 +837,22 @@ export function App() {
           onCanvasPointerDown={handleCanvasPointerDown}
           onCanvasPointerMove={handleCanvasPointerMove}
           onCanvasPointerUp={handleCanvasPointerUp}
+          onSelectLayer={(id) => setDocument({ ...document, activeLayerId: id })}
+          onUpdateLayerTransform={handleUpdateLayerTransform}
+          onEditTextLayer={(id) => setEditingTextLayerId(id)}
+          editingTextLayerId={editingTextLayerId}
+          onCommitTextEdit={handleCommitTextEdit}
         />
 
         <RightPanels
           activeTool={activeTool}
           toolSettings={toolSettings}
-          onSettingsChange={(newSet) => setToolSettings({ ...toolSettings, ...newSet })}
+          onSettingsChange={handleUpdateTextSettings}
           hasSelection={!!document.selection}
           onClearSelectionContent={handleClearSelectionContent}
           onFillSelectionContent={handleFillSelectionContent}
           onDeselect={handleDeselect}
+          onCropToSelection={handleCropToSelection}
           layers={document.layers}
           activeLayerId={document.activeLayerId}
           onSelectLayer={(id) => setDocument({ ...document, activeLayerId: id })}
@@ -627,8 +864,8 @@ export function App() {
           onDeleteLayer={handleDeleteLayer}
           onReorderLayer={handleReorderLayer}
           onOpacityChange={handleOpacityChange}
-          historyItems={historyRef.current.items}
-          historyIndex={historyRef.current.currentIndex}
+          historyItems={historyItems}
+          historyIndex={historyIndex}
           onJumpHistory={handleJumpHistory}
         />
       </div>
@@ -654,6 +891,21 @@ export function App() {
       <GuideModal
         isOpen={isGuideModalOpen}
         onClose={() => setIsGuideModalOpen(false)}
+      />
+
+      <AdjustmentsModal
+        isOpen={isAdjustmentsModalOpen}
+        onClose={() => setIsAdjustmentsModalOpen(false)}
+        activeLayer={activeLayerObj}
+        onApply={handleApplyAdjustments}
+      />
+
+      <ResizeCanvasModal
+        isOpen={isResizeModalOpen}
+        onClose={() => setIsResizeModalOpen(false)}
+        currentWidth={document.width}
+        currentHeight={document.height}
+        onResize={handleResizeCanvas}
       />
     </div>
   );

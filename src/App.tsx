@@ -151,8 +151,8 @@ export function App() {
 
   const handleFitScreen = useCallback(() => {
     const fit = calculateFitToScreenViewport(
-      window.innerWidth - 300,
-      window.innerHeight - 80,
+      window.innerWidth - 300 - 14,
+      window.innerHeight - 80 - 14,
       document.width,
       document.height,
       40

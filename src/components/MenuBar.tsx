@@ -16,12 +16,16 @@ import {
   RotateCcw,
   FlipHorizontal,
   FlipVertical,
+  FileCheck,
+  Archive,
 } from 'lucide-react';
 
 interface MenuBarProps {
   onNewDocument: () => void;
   onOpenImage: () => void;
   onExport: (format: 'png' | 'jpg' | 'webp') => void;
+  onExportPDF?: () => void;
+  onExportZIP?: (format: 'png' | 'jpeg') => void;
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
@@ -45,6 +49,8 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onNewDocument,
   onOpenImage,
   onExport,
+  onExportPDF,
+  onExportZIP,
   onUndo,
   onRedo,
   canUndo,
@@ -137,6 +143,28 @@ export const MenuBar: React.FC<MenuBarProps> = ({
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Export WebP</span>
+                  </button>
+                  <div className="my-1 border-t border-zinc-700" />
+                  <button
+                    onClick={onExportPDF}
+                    className="w-full text-left px-3 py-1.5 hover:bg-emerald-600 flex items-center space-x-2 text-emerald-300 font-medium"
+                  >
+                    <FileCheck className="w-3.5 h-3.5" />
+                    <span>Export All as PDF</span>
+                  </button>
+                  <button
+                    onClick={() => onExportZIP?.('png')}
+                    className="w-full text-left px-3 py-1.5 hover:bg-emerald-600 flex items-center space-x-2 text-emerald-300 font-medium"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Export ZIP (PNG)</span>
+                  </button>
+                  <button
+                    onClick={() => onExportZIP?.('jpeg')}
+                    className="w-full text-left px-3 py-1.5 hover:bg-emerald-600 flex items-center space-x-2 text-emerald-300 font-medium"
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                    <span>Export ZIP (JPEG)</span>
                   </button>
                 </div>
               )}

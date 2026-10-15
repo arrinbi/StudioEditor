@@ -14,6 +14,8 @@
     "canvas": "^3.2.3",
     "fake-indexeddb": "^6.2.5",
     "idb": "^8.0.4",
+    "jspdf": "^4.2.1",
+    "jszip": "^3.10.2",
     "konva": "^10.9.0",
     "lucide-react": "^1.57.0",
     "react": "^19.2.8",

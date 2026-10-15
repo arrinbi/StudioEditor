@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { PropertiesPanel } from './PropertiesPanel';
 import { LayersPanel } from './LayersPanel';
 import { HistoryPanel } from './HistoryPanel';
-import type { Layer, ToolSettings, ToolType, HistoryItem } from '../types/editor';
-import { Layers, Sliders, History, ChevronUp, ChevronDown, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { PagePanel } from './PagePanel';
+import type { Layer, ToolSettings, ToolType, HistoryItem, Page } from '../types/editor';
+import { Layers, Sliders, History, ChevronUp, ChevronDown, PanelRightClose, PanelRightOpen, FileText } from 'lucide-react';
 
 interface RightPanelsProps {
   activeTool: ToolType;
@@ -28,10 +29,17 @@ interface RightPanelsProps {
   historyItems: HistoryItem[];
   historyIndex: number;
   onJumpHistory: (index: number) => void;
+  pages: Page[];
+  activePageId: string;
+  onSelectPage: (pageId: string) => void;
+  onAddPage: () => void;
+  onDuplicatePage: (pageId: string) => void;
+  onDeletePage: (pageId: string) => void;
+  onReorderPage: (fromIndex: number, toIndex: number) => void;
 }
 
 export const RightPanels: React.FC<RightPanelsProps> = (props) => {
-  const [activeTab, setActiveTab] = useState<'layers' | 'properties' | 'history'>('layers');
+  const [activeTab, setActiveTab] = useState<'pages' | 'layers' | 'properties' | 'history'>('pages');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -60,8 +68,15 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
           </button>
           <div className="my-2 border-t border-zinc-800 w-full" />
           <button
+            onClick={() => { setActiveTab('pages'); setIsCollapsed(false); }}
+            title={`Pages (${props.pages?.length || 0})`}
+            className={`p-2 rounded my-1 ${activeTab === 'pages' ? 'text-sky-400 bg-zinc-800' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            <FileText className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => { setActiveTab('layers'); setIsCollapsed(false); }}
-            title={`Layers (${props.layers.length})`}
+            title={`Layers (${props.layers?.length || 0})`}
             className={`p-2 rounded my-1 ${activeTab === 'layers' ? 'text-sky-400 bg-zinc-800' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
             <Layers className="w-4 h-4" />
@@ -101,15 +116,26 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
             <PanelRightClose className="w-4 h-4" />
           </button>
           <button
+            onClick={() => setActiveTab('pages')}
+            className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1 ${
+              activeTab === 'pages'
+                ? 'border-emerald-500 text-emerald-400 bg-zinc-900'
+                : 'border-transparent text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Pages ({props.pages?.length || 0})</span>
+          </button>
+          <button
             onClick={() => setActiveTab('layers')}
-            className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1.5 ${
+            className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1 ${
               activeTab === 'layers'
                 ? 'border-sky-500 text-sky-400 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            <span>Layers ({props.layers.length})</span>
+            <span>Layers ({props.layers?.length || 0})</span>
           </button>
           <button
             onClick={() => setActiveTab('properties')}
@@ -136,6 +162,18 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
         </div>
 
         <div className="flex-1 overflow-hidden relative">
+          {activeTab === 'pages' && (
+            <PagePanel
+              pages={props.pages || []}
+              activePageId={props.activePageId || ''}
+              onSelectPage={props.onSelectPage || (() => {})}
+              onAddPage={props.onAddPage || (() => {})}
+              onDuplicatePage={props.onDuplicatePage || (() => {})}
+              onDeletePage={props.onDeletePage || (() => {})}
+              onReorderPage={props.onReorderPage || (() => {})}
+            />
+          )}
+
           {activeTab === 'layers' && (
             <LayersPanel
               layers={props.layers}

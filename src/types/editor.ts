@@ -85,6 +85,24 @@ export interface ViewportState {
   panY: number;
 }
 
+export interface Page {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  layers: Layer[];
+  activeLayerId: string | null;
+  selection: SelectionRect | null;
+  thumbnailDataUrl?: string;
+}
+
+export interface ProjectState {
+  id: string;
+  name: string;
+  activePageId: string;
+  pages: Page[];
+}
+
 export interface DocumentState {
   id: string;
   name: string;
@@ -93,6 +111,26 @@ export interface DocumentState {
   layers: Layer[];
   activeLayerId: string | null;
   selection: SelectionRect | null;
+}
+
+export interface SavedPage {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  activeLayerId: string | null;
+  layers: LayerSnapshot[];
+}
+
+export interface SavedProject {
+  id: string;
+  name: string;
+  width?: number;
+  height?: number;
+  updatedAt: number;
+  dataUrl?: string;
+  activePageId?: string;
+  pages?: SavedPage[];
 }
 
 export interface HistoryItem {

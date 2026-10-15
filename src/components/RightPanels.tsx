@@ -3,6 +3,7 @@ import { PropertiesPanel } from './PropertiesPanel';
 import { LayersPanel } from './LayersPanel';
 import { HistoryPanel } from './HistoryPanel';
 import type { Layer, ToolSettings, ToolType, HistoryItem } from '../types/editor';
+import { Layers, Sliders, History, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface RightPanelsProps {
   activeTool: ToolType;
@@ -34,53 +35,57 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
 
   return (
     <>
+      {/* Mobile Drawer Trigger */}
       <div className="md:hidden absolute right-2 top-11 z-30">
         <button
           onClick={() => setIsMobileOpen(!isMobileOpen)}
-          className="bg-zinc-800 border border-zinc-700 text-zinc-200 px-2.5 py-1 rounded shadow text-xs flex items-center space-x-1"
+          className="bg-zinc-800/90 backdrop-blur border border-zinc-700 text-zinc-200 px-3 py-1.5 rounded-lg shadow-lg text-xs font-medium flex items-center space-x-1.5 active:bg-zinc-700"
         >
           <span>Panels</span>
-          <span className="text-[10px]">{isMobileOpen ? '▼' : '▲'}</span>
+          {isMobileOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
         </button>
       </div>
 
       <aside
-        className={`w-72 bg-zinc-900 border-l border-zinc-800 flex flex-col z-20 shrink-0 transition-all duration-200 ${
+        className={`w-72 bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-20 shrink-0 transition-all duration-200 ${
           isMobileOpen
-            ? 'fixed inset-x-0 bottom-6 top-20 w-full z-40 bg-zinc-900/95 backdrop-blur'
+            ? 'fixed inset-x-0 bottom-6 top-20 w-full z-40 bg-zinc-900/95 backdrop-blur-md shadow-2xl'
             : 'hidden md:flex'
         }`}
       >
         <div className="flex border-b border-zinc-800 bg-zinc-950/60 select-none">
           <button
             onClick={() => setActiveTab('layers')}
-            className={`flex-1 py-2 text-center text-xs font-medium transition border-b-2 ${
+            className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1.5 ${
               activeTab === 'layers'
                 ? 'border-sky-500 text-sky-400 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Layers ({props.layers.length})
+            <Layers className="w-3.5 h-3.5" />
+            <span>Layers ({props.layers.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('properties')}
-            className={`flex-1 py-2 text-center text-xs font-medium transition border-b-2 ${
+            className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1.5 ${
               activeTab === 'properties'
                 ? 'border-sky-500 text-sky-400 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Properties
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Properties</span>
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`flex-1 py-2 text-center text-xs font-medium transition border-b-2 ${
+            className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1.5 ${
               activeTab === 'history'
                 ? 'border-sky-500 text-sky-400 bg-zinc-900'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            History ({props.historyItems.length})
+            <History className="w-3.5 h-3.5" />
+            <span>History</span>
           </button>
         </div>
 

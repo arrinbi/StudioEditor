@@ -85,6 +85,22 @@ export interface ViewportState {
   panY: number;
 }
 
+export interface OcrRegion {
+  id: string;
+  pageId: string;
+  text: string;
+  confidence: number;
+  bbox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  sourceWidth: number;
+  sourceHeight: number;
+  translatedText?: string;
+}
+
 export interface Page {
   id: string;
   name: string;
@@ -94,6 +110,8 @@ export interface Page {
   activeLayerId: string | null;
   selection: SelectionRect | null;
   thumbnailDataUrl?: string;
+  ocrRegions?: OcrRegion[];
+  selectedOcrRegionId?: string | null;
 }
 
 export interface ProjectState {
@@ -120,6 +138,7 @@ export interface SavedPage {
   height: number;
   activeLayerId: string | null;
   layers: LayerSnapshot[];
+  ocrRegions?: OcrRegion[];
 }
 
 export interface SavedProject {

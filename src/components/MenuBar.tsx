@@ -18,9 +18,11 @@ import {
   FlipVertical,
   FileCheck,
   Archive,
+  ScanText,
 } from 'lucide-react';
 
 interface MenuBarProps {
+  onOpenOcrPanel?: () => void;
   onNewDocument: () => void;
   onOpenImage: () => void;
   onExport: (format: 'png' | 'jpg' | 'webp') => void;
@@ -68,6 +70,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onRotateDocument,
   onFlipDocument,
   onOpenAdjustments,
+  onOpenOcrPanel,
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
@@ -298,6 +301,32 @@ export const MenuBar: React.FC<MenuBarProps> = ({
                   >
                     <Sliders className="w-3.5 h-3.5" />
                     <span>Image Adjustments...</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Scanlation / OCR Menu */}
+            <div className="relative">
+              <button
+                onClick={() => toggleMenu('scanlation')}
+                className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition ${
+                  activeMenu === 'scanlation' ? 'bg-zinc-800 text-white' : ''
+                }`}
+              >
+                Scanlation
+              </button>
+              {activeMenu === 'scanlation' && (
+                <div
+                  className="absolute left-0 top-full mt-1 w-52 bg-zinc-800 border border-zinc-700 rounded shadow-xl py-1 z-50"
+                  onClick={closeMenus}
+                >
+                  <button
+                    onClick={onOpenOcrPanel}
+                    className="w-full text-left px-3 py-1.5 hover:bg-sky-600 flex items-center space-x-2 text-sky-300 font-medium"
+                  >
+                    <ScanText className="w-3.5 h-3.5" />
+                    <span>OCR Detection Panel...</span>
                   </button>
                 </div>
               )}

@@ -21,7 +21,8 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-konva": "^19.3.2",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",

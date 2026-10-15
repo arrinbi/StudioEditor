@@ -103,6 +103,13 @@ describe('Right Dockable Panels', () => {
         historyItems={[]}
         historyIndex={0}
         onJumpHistory={vi.fn()}
+        pages={[]}
+        activePageId=""
+        onSelectPage={vi.fn()}
+        onAddPage={vi.fn()}
+        onDuplicatePage={vi.fn()}
+        onDeletePage={vi.fn()}
+        onReorderPage={vi.fn()}
       />
     );
 

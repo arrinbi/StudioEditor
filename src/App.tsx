@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { MenuBar } from './components/MenuBar';
 import { ToolOptionsBar } from './components/ToolOptionsBar';
 import { Toolbar } from './components/Toolbar';
@@ -11,6 +11,8 @@ import { AdjustmentsModal } from './components/AdjustmentsModal';
 import { ResizeCanvasModal } from './components/ResizeCanvasModal';
 import type {
   DocumentState,
+  ProjectState,
+  Page,
   ToolType,
   ToolSettings,
   ViewportState,
@@ -31,7 +33,18 @@ import {
   fillSelectionContent,
   translateActiveLayer,
 } from './core/selection';
-import { exportDocumentFile } from './core/export';
+import {
+  exportDocumentFile,
+  exportProjectToPDF,
+  exportProjectToZIP,
+} from './core/export';
+import {
+  createDefaultPage,
+  createInitialProject,
+  duplicatePage,
+  reorderPages,
+  renderPageThumbnail,
+} from './core/multiPage';
 import {
   cropDocument,
   resizeCanvas,
@@ -44,33 +57,28 @@ import {
   type AdjustmentSettings,
 } from './core/adjustments';
 import { calculateFitToScreenViewport } from './utils/viewport';
-import { saveProjectToIDB } from './services/storage';
+import { saveProjectStateToIDB, getProjectsFromIDB, loadProjectFromIDB } from './services/storage';
 
 export function App() {
-  const [document, setDocument] = useState<DocumentState>(() => {
-    const canvas = createOffscreenCanvas(1080, 1620);
+  const [project, setProject] = useState<ProjectState>(() =>
+    createInitialProject('Untitled Project', 1080, 1620)
+  );
+
+  const activePage = useMemo(() => {
+    return project.pages.find((p) => p.id === project.activePageId) || project.pages[0];
+  }, [project]);
+
+  const activeDocument: DocumentState = useMemo(() => {
     return {
-      id: 'doc_' + Date.now(),
-      name: 'Untitled Project',
-      width: 1080,
-      height: 1620,
-      layers: [
-        {
-          id: 'base_raster',
-          name: 'Base Raster Layer',
-          type: 'raster',
-          visible: true,
-          locked: false,
-          opacity: 1,
-          x: 0,
-          y: 0,
-          canvas,
-        },
-      ],
-      activeLayerId: 'base_raster',
-      selection: null,
+      id: activePage.id,
+      name: activePage.name,
+      width: activePage.width,
+      height: activePage.height,
+      layers: activePage.layers,
+      activeLayerId: activePage.activeLayerId,
+      selection: activePage.selection,
     };
-  });
+  }, [activePage]);
 
   const [activeTool, setActiveTool] = useState<ToolType>('brush');
   const [toolSettings, setToolSettings] = useState<ToolSettings>({
@@ -99,66 +107,152 @@ export function App() {
   const [isAdjustmentsModalOpen, setIsAdjustmentsModalOpen] = useState(false);
   const [isResizeModalOpen, setIsResizeModalOpen] = useState(false);
   const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
-  // History State
+  // Per-page History Managers
+  const historyMapRef = useRef<Map<string, HistoryManager>>(new Map());
+
+  const getHistoryManager = useCallback((pageId: string) => {
+    if (!historyMapRef.current.has(pageId)) {
+      historyMapRef.current.set(pageId, new HistoryManager());
+    }
+    return historyMapRef.current.get(pageId)!;
+  }, []);
+
+  // History State for current active page
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
-  const historyRef = useRef<HistoryManager>(new HistoryManager());
-
   const syncHistoryState = useCallback(() => {
-    setCanUndo(historyRef.current.canUndo);
-    setCanRedo(historyRef.current.canRedo);
-    setHistoryItems(historyRef.current.items);
-    setHistoryIndex(historyRef.current.currentIndex);
-  }, []);
+    const manager = getHistoryManager(activePage.id);
+    setCanUndo(manager.canUndo);
+    setCanRedo(manager.canRedo);
+    setHistoryItems(manager.items);
+    setHistoryIndex(manager.currentIndex);
+  }, [activePage.id, getHistoryManager]);
 
   const isDrawingRef = useRef(false);
   const lastDrawPointRef = useRef<{ x: number; y: number } | null>(null);
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Restore latest saved project from IndexedDB on mount
   useEffect(() => {
-    historyRef.current.recordAction('Initial Canvas', document).then(() => {
-      syncHistoryState();
-    });
-    // Record initial action once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let isMounted = true;
+    (async () => {
+      try {
+        const savedProjects = await getProjectsFromIDB();
+        if (savedProjects.length > 0 && isMounted) {
+          savedProjects.sort((a, b) => b.updatedAt - a.updatedAt);
+          const restored = await loadProjectFromIDB(savedProjects[0].id);
+          if (restored && restored.pages.length > 0 && isMounted) {
+            setProject(restored);
+            restored.pages.forEach((p) => {
+              const manager = getHistoryManager(p.id);
+              const docState: DocumentState = {
+                id: p.id,
+                name: p.name,
+                width: p.width,
+                height: p.height,
+                layers: p.layers,
+                activeLayerId: p.activeLayerId,
+                selection: p.selection,
+              };
+              manager.recordAction('Loaded Page State', docState);
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to restore project:', err);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, [getHistoryManager]);
 
+  // Record initial state when active page changes if history is empty
+  useEffect(() => {
+    const manager = getHistoryManager(activePage.id);
+    if (manager.items.length === 0) {
+      manager.recordAction('Initial Page State', activeDocument).then(() => {
+        syncHistoryState();
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage.id]);
+
+  // Autosave timer
   useEffect(() => {
     const timer = setTimeout(() => {
-      saveProjectToIDB({
-        id: document.id,
-        name: document.name,
-        width: document.width,
-        height: document.height,
-        updatedAt: Date.now(),
+      saveProjectStateToIDB(project).catch((err) => {
+        console.error('Autosave error:', err);
       });
     }, 1000);
     return () => clearTimeout(timer);
-  }, [document]);
+  }, [project]);
+
+  const updateActivePage = useCallback(
+    (updater: (prevPage: Page) => Page, description?: string) => {
+      setProject((prevProj) => {
+        const targetIndex = prevProj.pages.findIndex((p) => p.id === prevProj.activePageId);
+        if (targetIndex === -1) return prevProj;
+
+        const oldPage = prevProj.pages[targetIndex];
+        const newPage = updater(oldPage);
+        newPage.thumbnailDataUrl = renderPageThumbnail(newPage);
+
+        if (description) {
+          const docState: DocumentState = {
+            id: newPage.id,
+            name: newPage.name,
+            width: newPage.width,
+            height: newPage.height,
+            layers: newPage.layers,
+            activeLayerId: newPage.activeLayerId,
+            selection: newPage.selection,
+          };
+          const manager = getHistoryManager(newPage.id);
+          manager.recordAction(description, docState).then(() => syncHistoryState());
+        }
+
+        const newPages = [...prevProj.pages];
+        newPages[targetIndex] = newPage;
+
+        return {
+          ...prevProj,
+          pages: newPages,
+        };
+      });
+    },
+    [getHistoryManager, syncHistoryState]
+  );
 
   const commitDocChange = useCallback(
-    async (description: string, newDoc: DocumentState) => {
-      setDocument(newDoc);
-      await historyRef.current.recordAction(description, newDoc);
-      syncHistoryState();
+    (description: string, newDoc: DocumentState) => {
+      updateActivePage((prevPage) => ({
+        ...prevPage,
+        width: newDoc.width,
+        height: newDoc.height,
+        layers: newDoc.layers,
+        activeLayerId: newDoc.activeLayerId,
+        selection: newDoc.selection,
+      }), description);
     },
-    [syncHistoryState]
+    [updateActivePage]
   );
 
   const handleFitScreen = useCallback(() => {
     const fit = calculateFitToScreenViewport(
       window.innerWidth - 300 - 14,
       window.innerHeight - 80 - 14,
-      document.width,
-      document.height,
+      activeDocument.width,
+      activeDocument.height,
       40
     );
     setViewport(fit);
-  }, [document.width, document.height]);
+  }, [activeDocument.width, activeDocument.height]);
 
   const handleZoom100 = useCallback(() => {
     setViewport((prev) => ({
@@ -181,32 +275,75 @@ export function App() {
     }));
   }, []);
 
+  // Page Operations
+  const handleSelectPage = (pageId: string) => {
+    setProject((prev) => ({
+      ...prev,
+      activePageId: pageId,
+    }));
+  };
+
+  const handleAddPage = () => {
+    const newPage = createDefaultPage(
+      activePage.width,
+      activePage.height,
+      `Page ${project.pages.length + 1}`
+    );
+    newPage.thumbnailDataUrl = renderPageThumbnail(newPage);
+
+    setProject((prev) => ({
+      ...prev,
+      pages: [...prev.pages, newPage],
+      activePageId: newPage.id,
+    }));
+  };
+
+  const handleDuplicatePage = (pageId: string) => {
+    const target = project.pages.find((p) => p.id === pageId);
+    if (!target) return;
+
+    const dup = duplicatePage(target);
+    const targetIdx = project.pages.findIndex((p) => p.id === pageId);
+    const newPages = [...project.pages];
+    newPages.splice(targetIdx + 1, 0, dup);
+
+    setProject((prev) => ({
+      ...prev,
+      pages: newPages,
+      activePageId: dup.id,
+    }));
+  };
+
+  const handleDeletePage = (pageId: string) => {
+    if (project.pages.length <= 1) return;
+
+    const newPages = project.pages.filter((p) => p.id !== pageId);
+    const nextActiveId =
+      project.activePageId === pageId
+        ? newPages[0].id
+        : project.activePageId;
+
+    historyMapRef.current.delete(pageId);
+
+    setProject((prev) => ({
+      ...prev,
+      pages: newPages,
+      activePageId: nextActiveId,
+    }));
+  };
+
+  const handleReorderPage = (fromIndex: number, toIndex: number) => {
+    const newPages = reorderPages(project.pages, fromIndex, toIndex);
+    setProject((prev) => ({
+      ...prev,
+      pages: newPages,
+    }));
+  };
+
   const handleCreateNewDocument = (name: string, width: number, height: number) => {
-    const newCanvas = createOffscreenCanvas(width, height);
-    const newDoc: DocumentState = {
-      id: 'doc_' + Date.now(),
-      name,
-      width,
-      height,
-      layers: [
-        {
-          id: 'base_raster_' + Date.now(),
-          name: 'Base Raster Layer',
-          type: 'raster',
-          visible: true,
-          locked: false,
-          opacity: 1,
-          x: 0,
-          y: 0,
-          canvas: newCanvas,
-        },
-      ],
-      activeLayerId: 'base_raster_' + Date.now(),
-      selection: null,
-    };
-    historyRef.current = new HistoryManager();
-    setDocument(newDoc);
-    historyRef.current.recordAction('Create Document', newDoc).then(() => syncHistoryState());
+    const newProj = createInitialProject(name, width, height);
+    historyMapRef.current.clear();
+    setProject(newProj);
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -253,8 +390,8 @@ export function App() {
         canvas: drawingCanvas,
       };
 
-      const newDoc: DocumentState = {
-        id: 'doc_' + Date.now(),
+      const newPage: Page = {
+        id: 'page_' + Date.now(),
         name: file.name,
         width: img.width,
         height: img.height,
@@ -262,117 +399,152 @@ export function App() {
         activeLayerId: drawLayer.id,
         selection: null,
       };
+      newPage.thumbnailDataUrl = renderPageThumbnail(newPage);
 
-      historyRef.current = new HistoryManager();
-      setDocument(newDoc);
-      await historyRef.current.recordAction('Open Image', newDoc);
-      syncHistoryState();
+      setProject((prev) => ({
+        ...prev,
+        pages: [...prev.pages, newPage],
+        activePageId: newPage.id,
+      }));
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  const handleExport = (format: 'png' | 'jpg' | 'webp') => {
-    exportDocumentFile(document, format);
+  const handleExportSingle = (format: 'png' | 'jpg' | 'webp') => {
+    exportDocumentFile(activeDocument, format);
+  };
+
+  const handleExportPDF = async () => {
+    try {
+      setExportMessage('Generating multi-page PDF...');
+      await exportProjectToPDF(project, (current, total) => {
+        setExportMessage(`Rendering PDF page ${current} of ${total}...`);
+      });
+      setExportMessage('PDF export complete!');
+      setTimeout(() => setExportMessage(null), 2500);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      setExportMessage('PDF export failed.');
+      setTimeout(() => setExportMessage(null), 3000);
+    }
+  };
+
+  const handleExportZIP = async (format: 'png' | 'jpeg') => {
+    try {
+      setExportMessage(`Packaging ZIP (${format.toUpperCase()})...`);
+      await exportProjectToZIP(project, format, (current, total) => {
+        setExportMessage(`Adding page ${current} of ${total} to ZIP...`);
+      });
+      setExportMessage('ZIP export complete!');
+      setTimeout(() => setExportMessage(null), 2500);
+    } catch (err) {
+      console.error('ZIP export failed:', err);
+      setExportMessage('ZIP export failed.');
+      setTimeout(() => setExportMessage(null), 3000);
+    }
   };
 
   const handleUndo = useCallback(async () => {
-    const restored = await historyRef.current.undo(document);
+    const manager = getHistoryManager(activePage.id);
+    const restored = await manager.undo(activeDocument);
     if (restored) {
-      setDocument(restored);
+      commitDocChange('Undo', restored);
       syncHistoryState();
     }
-  }, [document, syncHistoryState]);
+  }, [activePage.id, activeDocument, getHistoryManager, commitDocChange, syncHistoryState]);
 
   const handleRedo = useCallback(async () => {
-    const restored = await historyRef.current.redo(document);
+    const manager = getHistoryManager(activePage.id);
+    const restored = await manager.redo(activeDocument);
     if (restored) {
-      setDocument(restored);
+      commitDocChange('Redo', restored);
       syncHistoryState();
     }
-  }, [document, syncHistoryState]);
+  }, [activePage.id, activeDocument, getHistoryManager, commitDocChange, syncHistoryState]);
 
   const handleJumpHistory = async (index: number) => {
-    const restored = await historyRef.current.jumpTo(index, document);
+    const manager = getHistoryManager(activePage.id);
+    const restored = await manager.jumpTo(index, activeDocument);
     if (restored) {
-      setDocument(restored);
+      commitDocChange('History Jump', restored);
       syncHistoryState();
     }
   };
 
   const handleSelectAll = useCallback(() => {
     commitDocChange('Select All', {
-      ...document,
-      selection: { x: 0, y: 0, width: document.width, height: document.height },
+      ...activeDocument,
+      selection: { x: 0, y: 0, width: activeDocument.width, height: activeDocument.height },
     });
-  }, [commitDocChange, document]);
+  }, [commitDocChange, activeDocument]);
 
   const handleDeselect = useCallback(() => {
-    if (document.selection) {
+    if (activeDocument.selection) {
       commitDocChange('Deselect', {
-        ...document,
+        ...activeDocument,
         selection: null,
       });
     }
-  }, [commitDocChange, document]);
+  }, [commitDocChange, activeDocument]);
 
   const handleClearSelectionContent = () => {
-    if (clearSelectionContent(document)) {
-      commitDocChange('Clear Selection', { ...document });
+    if (clearSelectionContent(activeDocument)) {
+      commitDocChange('Clear Selection', { ...activeDocument });
     }
   };
 
   const handleFillSelectionContent = () => {
-    if (fillSelectionContent(document, toolSettings.brushColor)) {
-      commitDocChange('Fill Selection', { ...document });
+    if (fillSelectionContent(activeDocument, toolSettings.brushColor)) {
+      commitDocChange('Fill Selection', { ...activeDocument });
     }
   };
 
   // Document Operations
   const handleCropToSelection = useCallback(() => {
-    if (document.selection) {
-      const cropped = cropDocument(document, document.selection);
+    if (activeDocument.selection) {
+      const cropped = cropDocument(activeDocument, activeDocument.selection);
       commitDocChange('Crop Canvas', cropped);
     }
-  }, [document, commitDocChange]);
+  }, [activeDocument, commitDocChange]);
 
   const handleResizeCanvas = useCallback(
     (newW: number, newH: number, anchor: AnchorPosition) => {
-      const resized = resizeCanvas(document, newW, newH, anchor);
+      const resized = resizeCanvas(activeDocument, newW, newH, anchor);
       commitDocChange('Resize Canvas', resized);
     },
-    [document, commitDocChange]
+    [activeDocument, commitDocChange]
   );
 
   const handleRotateDocument = useCallback(
     (degrees: 90 | -90 | 180) => {
-      const rotated = rotateDocument(document, degrees);
+      const rotated = rotateDocument(activeDocument, degrees);
       commitDocChange(`Rotate Canvas ${degrees}°`, rotated);
     },
-    [document, commitDocChange]
+    [activeDocument, commitDocChange]
   );
 
   const handleFlipDocument = useCallback(
     (direction: 'horizontal' | 'vertical') => {
-      const flipped = flipDocument(document, direction);
+      const flipped = flipDocument(activeDocument, direction);
       commitDocChange(`Flip Canvas ${direction}`, flipped);
     },
-    [document, commitDocChange]
+    [activeDocument, commitDocChange]
   );
 
   const handleApplyAdjustments = useCallback(
     (settings: AdjustmentSettings) => {
-      const adjusted = applyAdjustmentsToActiveLayer(document, settings);
+      const adjusted = applyAdjustmentsToActiveLayer(activeDocument, settings);
       commitDocChange('Apply Adjustments', adjusted);
     },
-    [document, commitDocChange]
+    [activeDocument, commitDocChange]
   );
 
   const handleAddLayer = () => {
-    const newCanvas = createOffscreenCanvas(document.width, document.height);
+    const newCanvas = createOffscreenCanvas(activeDocument.width, activeDocument.height);
     const newLayer: RasterLayer = {
       id: 'layer_' + Date.now(),
-      name: `Layer ${document.layers.length + 1}`,
+      name: `Layer ${activeDocument.layers.length + 1}`,
       type: 'raster',
       visible: true,
       locked: false,
@@ -383,22 +555,22 @@ export function App() {
     };
 
     commitDocChange('Add Layer', {
-      ...document,
-      layers: [...document.layers, newLayer],
+      ...activeDocument,
+      layers: [...activeDocument.layers, newLayer],
       activeLayerId: newLayer.id,
     });
   };
 
   const handleRenameLayer = (id: string, newName: string) => {
-    const updated = document.layers.map((l) => (l.id === id ? { ...l, name: newName } : l));
+    const updated = activeDocument.layers.map((l) => (l.id === id ? { ...l, name: newName } : l));
     commitDocChange('Rename Layer', {
-      ...document,
+      ...activeDocument,
       layers: updated,
     });
   };
 
   const handleDuplicateLayer = (id: string) => {
-    const target = document.layers.find((l) => l.id === id);
+    const target = activeDocument.layers.find((l) => l.id === id);
     if (!target) return;
 
     if (target.type === 'raster') {
@@ -416,8 +588,8 @@ export function App() {
       };
 
       commitDocChange('Duplicate Layer', {
-        ...document,
-        layers: [...document.layers, dupLayer],
+        ...activeDocument,
+        layers: [...activeDocument.layers, dupLayer],
         activeLayerId: dupLayer.id,
       });
     } else if (target.type === 'text') {
@@ -432,8 +604,8 @@ export function App() {
       };
 
       commitDocChange('Duplicate Layer', {
-        ...document,
-        layers: [...document.layers, dupLayer],
+        ...activeDocument,
+        layers: [...activeDocument.layers, dupLayer],
         activeLayerId: dupLayer.id,
       });
     }
@@ -441,49 +613,49 @@ export function App() {
 
   const handleDeleteLayer = useCallback(
     (id: string) => {
-      const target = document.layers.find((l) => l.id === id);
-      if (!target || target.isProtected || document.layers.length <= 1) return;
+      const target = activeDocument.layers.find((l) => l.id === id);
+      if (!target || target.isProtected || activeDocument.layers.length <= 1) return;
 
-      const remaining = document.layers.filter((l) => l.id !== id);
+      const remaining = activeDocument.layers.filter((l) => l.id !== id);
       commitDocChange('Delete Layer', {
-        ...document,
+        ...activeDocument,
         layers: remaining,
         activeLayerId: remaining[remaining.length - 1].id,
       });
     },
-    [document, commitDocChange]
+    [activeDocument, commitDocChange]
   );
 
   const handleToggleVisibility = (id: string) => {
-    const updated = document.layers.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l));
-    setDocument({ ...document, layers: updated });
+    const updated = activeDocument.layers.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l));
+    updateActivePage((prev) => ({ ...prev, layers: updated }));
   };
 
   const handleToggleLock = (id: string) => {
-    const updated = document.layers.map((l) => (l.id === id ? { ...l, locked: !l.locked } : l));
-    setDocument({ ...document, layers: updated });
+    const updated = activeDocument.layers.map((l) => (l.id === id ? { ...l, locked: !l.locked } : l));
+    updateActivePage((prev) => ({ ...prev, layers: updated }));
   };
 
   const handleReorderLayer = (id: string, direction: 'up' | 'down') => {
-    const index = document.layers.findIndex((l) => l.id === id);
+    const index = activeDocument.layers.findIndex((l) => l.id === id);
     if (index === -1) return;
 
     const targetIndex = direction === 'up' ? index + 1 : index - 1;
-    if (targetIndex < 0 || targetIndex >= document.layers.length) return;
+    if (targetIndex < 0 || targetIndex >= activeDocument.layers.length) return;
 
-    const newLayers = [...document.layers];
+    const newLayers = [...activeDocument.layers];
     const [moved] = newLayers.splice(index, 1);
     newLayers.splice(targetIndex, 0, moved);
 
     commitDocChange('Reorder Layers', {
-      ...document,
+      ...activeDocument,
       layers: newLayers,
     });
   };
 
   const handleOpacityChange = (id: string, opacity: number) => {
-    const updated = document.layers.map((l) => (l.id === id ? { ...l, opacity } : l));
-    setDocument({ ...document, layers: updated });
+    const updated = activeDocument.layers.map((l) => (l.id === id ? { ...l, opacity } : l));
+    updateActivePage((prev) => ({ ...prev, layers: updated }));
   };
 
   const handleUpdateLayerTransform = useCallback(
@@ -491,10 +663,10 @@ export function App() {
       layerId: string,
       transform: { x: number; y: number; rotation: number; scaleX: number; scaleY: number }
     ) => {
-      const target = document.layers.find((l) => l.id === layerId);
+      const target = activeDocument.layers.find((l) => l.id === layerId);
       if (!target || target.locked || target.isProtected) return;
 
-      const updatedLayers = document.layers.map((l) => {
+      const updatedLayers = activeDocument.layers.map((l) => {
         if (l.id === layerId) {
           return {
             ...l,
@@ -509,15 +681,15 @@ export function App() {
       });
 
       commitDocChange('Transform Layer', {
-        ...document,
+        ...activeDocument,
         layers: updatedLayers,
       });
     },
-    [document, commitDocChange]
+    [activeDocument, commitDocChange]
   );
 
   const handleCommitTextEdit = (layerId: string, newText: string) => {
-    const updatedLayers = document.layers.map((l) => {
+    const updatedLayers = activeDocument.layers.map((l) => {
       if (l.id === layerId && l.type === 'text') {
         return {
           ...l,
@@ -528,7 +700,7 @@ export function App() {
     });
 
     commitDocChange('Edit Text', {
-      ...document,
+      ...activeDocument,
       layers: updatedLayers,
     });
     setEditingTextLayerId(null);
@@ -537,10 +709,10 @@ export function App() {
   const handleUpdateTextSettings = (newSettings: Partial<ToolSettings>) => {
     setToolSettings((prev) => {
       const updated = { ...prev, ...newSettings };
-      if (document.activeLayerId) {
-        const activeL = document.layers.find((l) => l.id === document.activeLayerId);
+      if (activeDocument.activeLayerId) {
+        const activeL = activeDocument.layers.find((l) => l.id === activeDocument.activeLayerId);
         if (activeL && activeL.type === 'text' && !activeL.locked && !activeL.isProtected) {
-          const updatedLayers = document.layers.map((l) => {
+          const updatedLayers = activeDocument.layers.map((l) => {
             if (l.id === activeL.id) {
               return {
                 ...l,
@@ -554,7 +726,7 @@ export function App() {
             }
             return l;
           });
-          setDocument((prevDoc) => ({ ...prevDoc, layers: updatedLayers }));
+          updateActivePage((prev) => ({ ...prev, layers: updatedLayers }));
         }
       }
       return updated;
@@ -599,8 +771,8 @@ export function App() {
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (document.activeLayerId) {
-          handleDeleteLayer(document.activeLayerId);
+        if (activeDocument.activeLayerId) {
+          handleDeleteLayer(activeDocument.activeLayerId);
           return;
         }
       }
@@ -635,13 +807,13 @@ export function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleSelectAll, handleDeselect, handleDeleteLayer, document.activeLayerId]);
+  }, [handleUndo, handleRedo, handleSelectAll, handleDeselect, handleDeleteLayer, activeDocument.activeLayerId]);
 
   const handleCanvasPointerDown = (docX: number, docY: number) => {
-    const activeLayer = document.layers.find((l) => l.id === document.activeLayerId);
+    const activeLayer = activeDocument.layers.find((l) => l.id === activeDocument.activeLayerId);
 
     if (activeTool === 'eyedropper') {
-      const sampledColor = sampleCanvasColor(document, docX, docY);
+      const sampledColor = sampleCanvasColor(activeDocument, docX, docY);
       setToolSettings((prev) => ({ ...prev, brushColor: sampledColor }));
       return;
     }
@@ -649,7 +821,7 @@ export function App() {
     if (activeTool === 'text') {
       const newTextLayer: TextLayer = {
         id: 'text_' + Date.now(),
-        name: `Text ${document.layers.length + 1}`,
+        name: `Text ${activeDocument.layers.length + 1}`,
         type: 'text',
         visible: true,
         locked: false,
@@ -668,8 +840,8 @@ export function App() {
       };
 
       commitDocChange('Add Text Layer', {
-        ...document,
-        layers: [...document.layers, newTextLayer],
+        ...activeDocument,
+        layers: [...activeDocument.layers, newTextLayer],
         activeLayerId: newTextLayer.id,
       });
       setEditingTextLayerId(newTextLayer.id);
@@ -688,16 +860,16 @@ export function App() {
         toolSettings,
         activeTool === 'eraser'
       );
-      setDocument({ ...document });
+      updateActivePage((prev) => ({ ...prev }));
       return;
     }
 
     if (activeTool === 'rectangle-select') {
       selectionStartRef.current = { x: docX, y: docY };
-      setDocument({
-        ...document,
+      updateActivePage((prev) => ({
+        ...prev,
         selection: { x: docX, y: docY, width: 0, height: 0 },
-      });
+      }));
       return;
     }
 
@@ -708,7 +880,7 @@ export function App() {
   };
 
   const handleCanvasPointerMove = (docX: number, docY: number) => {
-    const activeLayer = document.layers.find((l) => l.id === document.activeLayerId);
+    const activeLayer = activeDocument.layers.find((l) => l.id === activeDocument.activeLayerId);
 
     if ((activeTool === 'brush' || activeTool === 'eraser') && isDrawingRef.current) {
       if (!activeLayer || activeLayer.type !== 'raster' || activeLayer.locked) return;
@@ -721,7 +893,7 @@ export function App() {
           activeTool === 'eraser'
         );
         lastDrawPointRef.current = { x: docX, y: docY };
-        setDocument({ ...document });
+        updateActivePage((prev) => ({ ...prev }));
       }
       return;
     }
@@ -733,10 +905,10 @@ export function App() {
       const width = Math.abs(docX - start.x);
       const height = Math.abs(docY - start.y);
 
-      setDocument({
-        ...document,
+      updateActivePage((prev) => ({
+        ...prev,
         selection: { x, y, width, height },
-      });
+      }));
       return;
     }
 
@@ -745,7 +917,11 @@ export function App() {
       const dy = docY - lastDrawPointRef.current.y;
       lastDrawPointRef.current = { x: docX, y: docY };
 
-      setDocument((prev) => translateActiveLayer(prev, dx, dy));
+      const translatedDoc = translateActiveLayer(activeDocument, dx, dy);
+      updateActivePage((prev) => ({
+        ...prev,
+        layers: translatedDoc.layers,
+      }));
     }
   };
 
@@ -753,16 +929,16 @@ export function App() {
     if ((activeTool === 'brush' || activeTool === 'eraser') && isDrawingRef.current) {
       isDrawingRef.current = false;
       lastDrawPointRef.current = null;
-      commitDocChange(activeTool === 'brush' ? 'Brush Stroke' : 'Eraser Stroke', document);
+      commitDocChange(activeTool === 'brush' ? 'Brush Stroke' : 'Eraser Stroke', activeDocument);
       return;
     }
 
     if (activeTool === 'rectangle-select' && selectionStartRef.current) {
       selectionStartRef.current = null;
-      if (document.selection && document.selection.width > 2 && document.selection.height > 2) {
-        commitDocChange('Select Area', document);
+      if (activeDocument.selection && activeDocument.selection.width > 2 && activeDocument.selection.height > 2) {
+        commitDocChange('Select Area', activeDocument);
       } else {
-        setDocument({ ...document, selection: null });
+        updateActivePage((prev) => ({ ...prev, selection: null }));
       }
       return;
     }
@@ -770,11 +946,11 @@ export function App() {
     if (activeTool === 'select' && isDrawingRef.current) {
       isDrawingRef.current = false;
       lastDrawPointRef.current = null;
-      commitDocChange('Move Layer', document);
+      commitDocChange('Move Layer', activeDocument);
     }
   };
 
-  const activeLayerObj = document.layers.find((l) => l.id === document.activeLayerId) || null;
+  const activeLayerObj = activeDocument.layers.find((l) => l.id === activeDocument.activeLayerId) || null;
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-zinc-900 select-none">
@@ -789,7 +965,9 @@ export function App() {
       <MenuBar
         onNewDocument={() => setIsNewModalOpen(true)}
         onOpenImage={handleOpenImageClick}
-        onExport={handleExport}
+        onExport={handleExportSingle}
+        onExportPDF={handleExportPDF}
+        onExportZIP={handleExportZIP}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={canUndo}
@@ -800,8 +978,8 @@ export function App() {
         onFitScreen={handleFitScreen}
         onZoom100={handleZoom100}
         onOpenGuide={() => setIsGuideModalOpen(true)}
-        documentName={document.name}
-        hasSelection={!!document.selection}
+        documentName={`${project.name} - ${activePage.name}`}
+        hasSelection={!!activeDocument.selection}
         onCropToSelection={handleCropToSelection}
         onOpenResizeCanvas={() => setIsResizeModalOpen(true)}
         onRotateDocument={handleRotateDocument}
@@ -809,11 +987,23 @@ export function App() {
         onOpenAdjustments={() => setIsAdjustmentsModalOpen(true)}
       />
 
+      {exportMessage && (
+        <div className="bg-emerald-600 text-white text-xs px-4 py-1 flex items-center justify-between transition-all font-medium">
+          <span>{exportMessage}</span>
+          <button
+            onClick={() => setExportMessage(null)}
+            className="text-white/80 hover:text-white text-xs ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <ToolOptionsBar
         activeTool={activeTool}
         settings={toolSettings}
         onSettingsChange={handleUpdateTextSettings}
-        hasSelection={!!document.selection}
+        hasSelection={!!activeDocument.selection}
         onClearSelectionContent={handleClearSelectionContent}
         onFillSelectionContent={handleFillSelectionContent}
         onDeselect={handleDeselect}
@@ -829,7 +1019,7 @@ export function App() {
         />
 
         <CanvasArea
-          document={document}
+          document={activeDocument}
           viewport={viewport}
           activeTool={activeTool}
           onViewportChange={setViewport}
@@ -837,7 +1027,9 @@ export function App() {
           onCanvasPointerDown={handleCanvasPointerDown}
           onCanvasPointerMove={handleCanvasPointerMove}
           onCanvasPointerUp={handleCanvasPointerUp}
-          onSelectLayer={(id) => setDocument({ ...document, activeLayerId: id })}
+          onSelectLayer={(id) =>
+            updateActivePage((prev) => ({ ...prev, activeLayerId: id }))
+          }
           onUpdateLayerTransform={handleUpdateLayerTransform}
           onEditTextLayer={(id) => setEditingTextLayerId(id)}
           editingTextLayerId={editingTextLayerId}
@@ -848,14 +1040,16 @@ export function App() {
           activeTool={activeTool}
           toolSettings={toolSettings}
           onSettingsChange={handleUpdateTextSettings}
-          hasSelection={!!document.selection}
+          hasSelection={!!activeDocument.selection}
           onClearSelectionContent={handleClearSelectionContent}
           onFillSelectionContent={handleFillSelectionContent}
           onDeselect={handleDeselect}
           onCropToSelection={handleCropToSelection}
-          layers={document.layers}
-          activeLayerId={document.activeLayerId}
-          onSelectLayer={(id) => setDocument({ ...document, activeLayerId: id })}
+          layers={activeDocument.layers}
+          activeLayerId={activeDocument.activeLayerId}
+          onSelectLayer={(id) =>
+            updateActivePage((prev) => ({ ...prev, activeLayerId: id }))
+          }
           onRenameLayer={handleRenameLayer}
           onToggleVisibility={handleToggleVisibility}
           onToggleLock={handleToggleLock}
@@ -867,13 +1061,20 @@ export function App() {
           historyItems={historyItems}
           historyIndex={historyIndex}
           onJumpHistory={handleJumpHistory}
+          pages={project.pages}
+          activePageId={project.activePageId}
+          onSelectPage={handleSelectPage}
+          onAddPage={handleAddPage}
+          onDuplicatePage={handleDuplicatePage}
+          onDeletePage={handleDeletePage}
+          onReorderPage={handleReorderPage}
         />
       </div>
 
       <StatusBar
         zoomRatio={viewport.zoom}
-        width={document.width}
-        height={document.height}
+        width={activeDocument.width}
+        height={activeDocument.height}
         cursorPos={cursorPos}
         activeTool={activeTool}
         onFitScreen={handleFitScreen}
@@ -903,8 +1104,8 @@ export function App() {
       <ResizeCanvasModal
         isOpen={isResizeModalOpen}
         onClose={() => setIsResizeModalOpen(false)}
-        currentWidth={document.width}
-        currentHeight={document.height}
+        currentWidth={activeDocument.width}
+        currentHeight={activeDocument.height}
         onResize={handleResizeCanvas}
       />
     </div>

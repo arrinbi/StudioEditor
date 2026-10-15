@@ -1,17 +1,11 @@
 import { openDB, type IDBPDatabase } from 'idb';
+import type { ProjectState, SavedProject, SavedPage } from '../types/editor';
+import { serializeLayer, deserializeLayer } from '../core/engine';
+import { renderPageThumbnail } from '../core/multiPage';
 
 const DB_NAME = 'PhotoshopScanlationDB';
 const DB_VERSION = 1;
 const STORE_PROJECTS = 'projects';
-
-export interface SavedProject {
-  id: string;
-  name: string;
-  width: number;
-  height: number;
-  updatedAt: number;
-  dataUrl?: string;
-}
 
 async function getDB(): Promise<IDBPDatabase> {
   return openDB(DB_NAME, DB_VERSION, {
@@ -21,6 +15,84 @@ async function getDB(): Promise<IDBPDatabase> {
       }
     },
   });
+}
+
+export async function saveProjectStateToIDB(project: ProjectState): Promise<void> {
+  try {
+    const savedPages: SavedPage[] = project.pages.map((p) => ({
+      id: p.id,
+      name: p.name,
+      width: p.width,
+      height: p.height,
+      activeLayerId: p.activeLayerId,
+      layers: p.layers.map(serializeLayer),
+    }));
+
+    const activeP = project.pages.find((p) => p.id === project.activePageId) || project.pages[0];
+
+    const record: SavedProject = {
+      id: project.id,
+      name: project.name,
+      width: activeP?.width || 1080,
+      height: activeP?.height || 1620,
+      updatedAt: Date.now(),
+      activePageId: project.activePageId,
+      pages: savedPages,
+    };
+
+    const db = await getDB();
+    await db.put(STORE_PROJECTS, record);
+  } catch (err) {
+    console.error('Failed to save project to IndexedDB:', err);
+    throw err;
+  }
+}
+
+export async function loadProjectFromIDB(id: string): Promise<ProjectState | null> {
+  try {
+    const db = await getDB();
+    const saved: SavedProject | undefined = await db.get(STORE_PROJECTS, id);
+    if (!saved) return null;
+
+    if (saved.pages && saved.pages.length > 0) {
+      const pages = await Promise.all(
+        saved.pages.map(async (sp) => {
+          const deserializedLayers = await Promise.all(sp.layers.map((l) => deserializeLayer(l)));
+          const pageObj = {
+            id: sp.id,
+            name: sp.name,
+            width: sp.width,
+            height: sp.height,
+            activeLayerId: sp.activeLayerId,
+            layers: deserializedLayers,
+            selection: null,
+          };
+          const thumbnailDataUrl = renderPageThumbnail(pageObj);
+          return {
+            ...pageObj,
+            thumbnailDataUrl,
+          };
+        })
+      );
+
+      const activePageId = saved.activePageId && pages.some((p) => p.id === saved.activePageId)
+        ? saved.activePageId
+        : pages[0].id;
+
+      return {
+        id: saved.id,
+        name: saved.name,
+        activePageId,
+        pages,
+      };
+    }
+
+    // Backward compatibility for single-page SavedProject
+    return null;
+  } catch (err) {
+    console.error('Failed to load project from IndexedDB:', err);
+    return null;
+  }
 }
 
 export async function saveProjectToIDB(project: SavedProject): Promise<void> {

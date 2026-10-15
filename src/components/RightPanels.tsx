@@ -3,7 +3,7 @@ import { PropertiesPanel } from './PropertiesPanel';
 import { LayersPanel } from './LayersPanel';
 import { HistoryPanel } from './HistoryPanel';
 import type { Layer, ToolSettings, ToolType, HistoryItem } from '../types/editor';
-import { Layers, Sliders, History, ChevronUp, ChevronDown } from 'lucide-react';
+import { Layers, Sliders, History, ChevronUp, ChevronDown, PanelRightClose, PanelRightOpen } from 'lucide-react';
 
 interface RightPanelsProps {
   activeTool: ToolType;
@@ -32,6 +32,7 @@ interface RightPanelsProps {
 export const RightPanels: React.FC<RightPanelsProps> = (props) => {
   const [activeTab, setActiveTab] = useState<'layers' | 'properties' | 'history'>('layers');
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
     <>
@@ -46,14 +47,58 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
         </button>
       </div>
 
+      {/* Desktop Collapse Trigger (when collapsed) */}
+      {isCollapsed && (
+        <div className="hidden md:flex flex-col items-center bg-zinc-900 border-l border-zinc-800 py-2 px-1 z-20 shrink-0">
+          <button
+            onClick={() => setIsCollapsed(false)}
+            title="Expand Panels"
+            className="p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition"
+          >
+            <PanelRightOpen className="w-4 h-4" />
+          </button>
+          <div className="my-2 border-t border-zinc-800 w-full" />
+          <button
+            onClick={() => { setActiveTab('layers'); setIsCollapsed(false); }}
+            title={`Layers (${props.layers.length})`}
+            className={`p-2 rounded my-1 ${activeTab === 'layers' ? 'text-sky-400 bg-zinc-800' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => { setActiveTab('properties'); setIsCollapsed(false); }}
+            title="Properties"
+            className={`p-2 rounded my-1 ${activeTab === 'properties' ? 'text-sky-400 bg-zinc-800' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            <Sliders className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => { setActiveTab('history'); setIsCollapsed(false); }}
+            title="History"
+            className={`p-2 rounded my-1 ${activeTab === 'history' ? 'text-sky-400 bg-zinc-800' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            <History className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <aside
         className={`w-72 bg-zinc-900/95 border-l border-zinc-800 flex flex-col z-20 shrink-0 transition-all duration-200 ${
+          isCollapsed ? 'hidden' : ''
+        } ${
           isMobileOpen
             ? 'fixed inset-x-0 bottom-6 top-20 w-full z-40 bg-zinc-900/95 backdrop-blur-md shadow-2xl'
             : 'hidden md:flex'
         }`}
       >
-        <div className="flex border-b border-zinc-800 bg-zinc-950/60 select-none">
+        <div className="flex border-b border-zinc-800 bg-zinc-950/60 select-none items-center">
+          <button
+            onClick={() => setIsCollapsed(true)}
+            title="Collapse Panels"
+            className="hidden md:flex p-2 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 transition items-center justify-center border-r border-zinc-800"
+          >
+            <PanelRightClose className="w-4 h-4" />
+          </button>
           <button
             onClick={() => setActiveTab('layers')}
             className={`flex-1 py-2.5 text-center text-xs font-semibold transition-all border-b-2 flex items-center justify-center space-x-1.5 ${

@@ -1,10 +1,31 @@
 import type { DocumentState, Layer, LayerSnapshot, HistoryItem } from '../types/editor';
+import { renderDocumentComposite } from './export';
 
 export function createOffscreenCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.floor(width));
   canvas.height = Math.max(1, Math.floor(height));
   return canvas;
+}
+
+export function sampleCanvasColor(doc: DocumentState, x: number, y: number): string {
+  const docX = Math.floor(x);
+  const docY = Math.floor(y);
+
+  if (docX < 0 || docX >= doc.width || docY < 0 || docY >= doc.height) {
+    return '#000000';
+  }
+
+  const compositeCanvas = renderDocumentComposite(doc);
+  const ctx = compositeCanvas.getContext('2d');
+  if (!ctx) return '#000000';
+
+  const pixel = ctx.getImageData(docX, docY, 1, 1).data;
+  const r = pixel[0].toString(16).padStart(2, '0');
+  const g = pixel[1].toString(16).padStart(2, '0');
+  const b = pixel[2].toString(16).padStart(2, '0');
+
+  return `#${r}${g}${b}`;
 }
 
 export function serializeLayer(layer: Layer): LayerSnapshot {
@@ -18,6 +39,9 @@ export function serializeLayer(layer: Layer): LayerSnapshot {
     isProtected: layer.isProtected,
     x: layer.x,
     y: layer.y,
+    rotation: layer.rotation,
+    scaleX: layer.scaleX,
+    scaleY: layer.scaleY,
   };
 
   if (layer.type === 'raster' || layer.type === 'mask') {
@@ -39,6 +63,9 @@ export function serializeLayer(layer: Layer): LayerSnapshot {
     base.color = layer.color;
     base.width = layer.width;
     base.height = layer.height;
+    base.align = layer.align;
+    base.bold = layer.bold;
+    base.italic = layer.italic;
   }
 
   return base;
@@ -78,6 +105,9 @@ export async function deserializeLayer(snapshot: LayerSnapshot): Promise<Layer> 
     isProtected: snapshot.isProtected,
     x: snapshot.x,
     y: snapshot.y,
+    rotation: snapshot.rotation,
+    scaleX: snapshot.scaleX,
+    scaleY: snapshot.scaleY,
   };
 
   if (snapshot.type === 'raster' || snapshot.type === 'mask') {
@@ -121,6 +151,9 @@ export async function deserializeLayer(snapshot: LayerSnapshot): Promise<Layer> 
     color: snapshot.color || '#ffffff',
     width: snapshot.width || 100,
     height: snapshot.height || 30,
+    align: snapshot.align || 'left',
+    bold: snapshot.bold,
+    italic: snapshot.italic,
   };
 }
 

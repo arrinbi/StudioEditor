@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ToolType, ToolSettings } from '../types/editor';
-import { Sliders, Trash2, PaintBucket, XSquare } from 'lucide-react';
+import { Sliders, Trash2, PaintBucket, XSquare, AlignLeft, AlignCenter, AlignRight, Bold, Italic } from 'lucide-react';
 
 interface ToolOptionsBarProps {
   activeTool: ToolType;
@@ -10,6 +10,7 @@ interface ToolOptionsBarProps {
   onClearSelectionContent: () => void;
   onFillSelectionContent: () => void;
   onDeselect: () => void;
+  onCropToSelection?: () => void;
 }
 
 export const ToolOptionsBar: React.FC<ToolOptionsBarProps> = ({
@@ -20,7 +21,19 @@ export const ToolOptionsBar: React.FC<ToolOptionsBarProps> = ({
   onClearSelectionContent,
   onFillSelectionContent,
   onDeselect,
+  onCropToSelection,
 }) => {
+  const fontFamilies = [
+    'Arial',
+    'Times New Roman',
+    'Impact',
+    'Comic Sans MS',
+    'Courier New',
+    'Georgia',
+    'Verdana',
+    'Trebuchet MS',
+  ];
+
   return (
     <div className="bg-zinc-850 bg-zinc-900/90 border-b border-zinc-800 text-zinc-300 px-3 py-1 text-xs flex items-center space-x-4 overflow-x-auto select-none shrink-0 min-h-[32px] scrollbar-none z-20">
       <div className="flex items-center space-x-1.5 font-medium text-sky-400 capitalize pr-2 border-r border-zinc-800 shrink-0">
@@ -117,10 +130,127 @@ export const ToolOptionsBar: React.FC<ToolOptionsBarProps> = ({
         </div>
       )}
 
+      {activeTool === 'text' && (
+        <div className="flex items-center space-x-4 shrink-0">
+          <div className="flex items-center space-x-1.5">
+            <span className="text-zinc-400 text-[11px]">Font:</span>
+            <select
+              value={settings.fontFamily || 'Arial'}
+              onChange={(e) => onSettingsChange({ fontFamily: e.target.value })}
+              className="bg-zinc-800 border border-zinc-700 text-zinc-200 rounded px-2 py-0.5 text-xs focus:outline-none"
+            >
+              {fontFamilies.map((font) => (
+                <option key={font} value={font}>
+                  {font}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center space-x-1.5">
+            <span className="text-zinc-400 text-[11px]">Size:</span>
+            <input
+              type="number"
+              min="8"
+              max="200"
+              value={settings.fontSize || 24}
+              onChange={(e) => onSettingsChange({ fontSize: Number(e.target.value) })}
+              className="w-14 bg-zinc-800 border border-zinc-700 text-zinc-200 rounded px-1.5 py-0.5 font-mono text-xs text-right"
+            />
+            <span className="text-zinc-400 text-[10px]">px</span>
+          </div>
+
+          <div className="flex items-center space-x-1.5">
+            <span className="text-zinc-400 text-[11px]">Color:</span>
+            <input
+              type="color"
+              value={settings.brushColor}
+              onChange={(e) => onSettingsChange({ brushColor: e.target.value })}
+              className="w-5 h-5 rounded cursor-pointer border border-zinc-700 bg-transparent"
+            />
+          </div>
+
+          {/* Alignment */}
+          <div className="flex items-center border border-zinc-700 rounded overflow-hidden">
+            <button
+              onClick={() => onSettingsChange({ textAlign: 'left' })}
+              className={`p-1 transition ${
+                (settings.textAlign || 'left') === 'left' ? 'bg-sky-600 text-white' : 'hover:bg-zinc-800 text-zinc-400'
+              }`}
+              title="Align Left"
+            >
+              <AlignLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onSettingsChange({ textAlign: 'center' })}
+              className={`p-1 transition ${
+                settings.textAlign === 'center' ? 'bg-sky-600 text-white' : 'hover:bg-zinc-800 text-zinc-400'
+              }`}
+              title="Align Center"
+            >
+              <AlignCenter className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onSettingsChange({ textAlign: 'right' })}
+              className={`p-1 transition ${
+                settings.textAlign === 'right' ? 'bg-sky-600 text-white' : 'hover:bg-zinc-800 text-zinc-400'
+              }`}
+              title="Align Right"
+            >
+              <AlignRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Styles */}
+          <div className="flex items-center border border-zinc-700 rounded overflow-hidden">
+            <button
+              onClick={() => onSettingsChange({ textBold: !settings.textBold })}
+              className={`p-1 transition ${
+                settings.textBold ? 'bg-sky-600 text-white' : 'hover:bg-zinc-800 text-zinc-400'
+              }`}
+              title="Bold"
+            >
+              <Bold className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onSettingsChange({ textItalic: !settings.textItalic })}
+              className={`p-1 transition ${
+                settings.textItalic ? 'bg-sky-600 text-white' : 'hover:bg-zinc-800 text-zinc-400'
+              }`}
+              title="Italic"
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeTool === 'eyedropper' && (
+        <div className="flex items-center space-x-3 shrink-0">
+          <span className="text-zinc-400 text-[11px]">Sampled Color:</span>
+          <div className="flex items-center space-x-1.5">
+            <div
+              className="w-4 h-4 rounded border border-zinc-600 shadow"
+              style={{ backgroundColor: settings.brushColor }}
+            />
+            <span className="font-mono text-[11px] text-sky-400 uppercase font-semibold">{settings.brushColor}</span>
+          </div>
+          <span className="text-zinc-500 italic text-[11px] pr-2">Click anywhere on canvas to pick pixel color</span>
+        </div>
+      )}
+
       {activeTool === 'rectangle-select' && (
         <div className="flex items-center space-x-2 shrink-0">
           {hasSelection ? (
             <>
+              {onCropToSelection && (
+                <button
+                  onClick={onCropToSelection}
+                  className="px-2 py-0.5 rounded bg-emerald-900/40 hover:bg-emerald-800/60 border border-emerald-700/50 text-emerald-200 text-[11px] flex items-center space-x-1"
+                >
+                  <span>Crop to Selection</span>
+                </button>
+              )}
               <button
                 onClick={onClearSelectionContent}
                 className="px-2 py-0.5 rounded bg-red-900/40 hover:bg-red-800/60 border border-red-700/50 text-red-200 text-[11px] flex items-center space-x-1"
@@ -151,7 +281,7 @@ export const ToolOptionsBar: React.FC<ToolOptionsBarProps> = ({
 
       {['select', 'hand', 'zoom'].includes(activeTool) && (
         <div className="text-zinc-400 text-[11px] shrink-0">
-          {activeTool === 'select' && 'Click and drag canvas content to reposition active layer.'}
+          {activeTool === 'select' && 'Click and drag canvas content to reposition or transform active layer.'}
           {activeTool === 'hand' && 'Click and drag to pan viewport around canvas.'}
           {activeTool === 'zoom' && 'Click to zoom in. Use zoom status bar controls for presets.'}
         </div>

@@ -37,7 +37,13 @@ describe('Document Export Pipeline', () => {
     expect(composite.width).toBe(800);
     expect(composite.height).toBe(1200);
 
-    const dataUrl = exportDocumentFile(doc, 'png', 'test');
-    expect(dataUrl).toContain('data:image/png');
+    const dataUrlPng = exportDocumentFile(doc, 'png', 'test');
+    expect(dataUrlPng).toContain('data:image/');
+
+    const dataUrlJpg = exportDocumentFile(doc, 'jpg', 'test');
+    expect(dataUrlJpg).toContain('data:image/');
+
+    const dataUrlWebp = exportDocumentFile(doc, 'webp', 'test');
+    expect(dataUrlWebp).toContain('data:image/');
   });
 });

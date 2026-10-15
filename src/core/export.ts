@@ -16,15 +16,42 @@ export function renderDocumentComposite(doc: DocumentState): HTMLCanvasElement {
     ctx.save();
     ctx.globalAlpha = layer.opacity;
 
+    // Translate to layer position
+    ctx.translate(layer.x, layer.y);
+
+    if (layer.rotation) {
+      ctx.rotate((layer.rotation * Math.PI) / 180);
+    }
+
+    if (layer.scaleX !== undefined || layer.scaleY !== undefined) {
+      ctx.scale(layer.scaleX ?? 1, layer.scaleY ?? 1);
+    }
+
     if (layer.type === 'raster' || layer.type === 'mask') {
-      ctx.drawImage(layer.canvas, layer.x, layer.y);
+      ctx.drawImage(layer.canvas, 0, 0);
     } else if (layer.type === 'image') {
-      ctx.drawImage(layer.image, layer.x, layer.y, layer.width, layer.height);
+      ctx.drawImage(layer.image, 0, 0, layer.width, layer.height);
     } else if (layer.type === 'text') {
       ctx.fillStyle = layer.color;
-      ctx.font = `${layer.fontSize}px ${layer.fontFamily}`;
+      let fontStyle = '';
+      if (layer.bold) fontStyle += 'bold ';
+      if (layer.italic) fontStyle += 'italic ';
+      ctx.font = `${fontStyle}${layer.fontSize}px ${layer.fontFamily}`.trim();
       ctx.textBaseline = 'top';
-      ctx.fillText(layer.text, layer.x, layer.y);
+      ctx.textAlign = layer.align || 'left';
+
+      let xOffset = 0;
+      if (layer.align === 'center') {
+        xOffset = layer.width / 2;
+      } else if (layer.align === 'right') {
+        xOffset = layer.width;
+      }
+
+      const lines = layer.text.split('\n');
+      const lineHeight = layer.fontSize * 1.2;
+      lines.forEach((line, index) => {
+        ctx.fillText(line, xOffset, index * lineHeight);
+      });
     }
 
     ctx.restore();
@@ -33,9 +60,16 @@ export function renderDocumentComposite(doc: DocumentState): HTMLCanvasElement {
   return exportCanvas;
 }
 
-export function exportDocumentFile(doc: DocumentState, format: 'png' | 'jpg', filename?: string): string {
+export function exportDocumentFile(
+  doc: DocumentState,
+  format: 'png' | 'jpg' | 'webp',
+  filename?: string
+): string {
   const compositeCanvas = renderDocumentComposite(doc);
-  const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+  let mimeType = 'image/png';
+  if (format === 'jpg') mimeType = 'image/jpeg';
+  else if (format === 'webp') mimeType = 'image/webp';
+
   const dataUrl = compositeCanvas.toDataURL(mimeType, 0.95);
 
   const cleanName = (filename || doc.name || 'Untitled').replace(/\.[^/.]+$/, '');

@@ -6,6 +6,7 @@ import { StatusBar } from './components/StatusBar';
 import { CanvasArea } from './components/CanvasArea';
 import { RightPanels } from './components/RightPanels';
 import { NewDocumentModal } from './components/NewDocumentModal';
+import { GuideModal } from './components/GuideModal';
 import type {
   DocumentState,
   ToolType,
@@ -73,6 +74,7 @@ export function App() {
 
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
   const historyRef = useRef<HistoryManager>(new HistoryManager());
   const [, setHistoryTick] = useState(0);
@@ -124,6 +126,20 @@ export function App() {
     setViewport((prev) => ({
       ...prev,
       zoom: 1.0,
+    }));
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    setViewport((prev) => ({
+      ...prev,
+      zoom: Math.min(20, prev.zoom * 1.25),
+    }));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setViewport((prev) => ({
+      ...prev,
+      zoom: Math.max(0.05, prev.zoom / 1.25),
     }));
   }, []);
 
@@ -559,6 +575,7 @@ export function App() {
         onAddLayer={handleAddLayer}
         onFitScreen={handleFitScreen}
         onZoom100={handleZoom100}
+        onOpenGuide={() => setIsGuideModalOpen(true)}
         documentName={document.name}
       />
 
@@ -622,12 +639,21 @@ export function App() {
         height={document.height}
         cursorPos={cursorPos}
         activeTool={activeTool}
+        onFitScreen={handleFitScreen}
+        onZoom100={handleZoom100}
+        onZoomIn={handleZoomIn}
+        onZoomOut={handleZoomOut}
       />
 
       <NewDocumentModal
         isOpen={isNewModalOpen}
         onClose={() => setIsNewModalOpen(false)}
         onCreate={handleCreateNewDocument}
+      />
+
+      <GuideModal
+        isOpen={isGuideModalOpen}
+        onClose={() => setIsGuideModalOpen(false)}
       />
     </div>
   );

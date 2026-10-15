@@ -9,6 +9,7 @@ import {
   Layers,
   Maximize2,
   Sparkles,
+  HelpCircle,
 } from 'lucide-react';
 
 interface MenuBarProps {
@@ -24,6 +25,7 @@ interface MenuBarProps {
   onAddLayer: () => void;
   onFitScreen: () => void;
   onZoom100: () => void;
+  onOpenGuide?: () => void;
   documentName: string;
 }
 
@@ -40,6 +42,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onAddLayer,
   onFitScreen,
   onZoom100,
+  onOpenGuide,
   documentName,
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -217,6 +220,31 @@ export const MenuBar: React.FC<MenuBarProps> = ({
                     className="w-full text-left px-3 py-1.5 hover:bg-sky-600 flex items-center space-x-2"
                   >
                     <span>100% Zoom</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="relative">
+              <button
+                onClick={() => toggleMenu('help')}
+                className={`px-2.5 py-1 rounded hover:bg-zinc-800 transition ${
+                  activeMenu === 'help' ? 'bg-zinc-800 text-white' : ''
+                }`}
+              >
+                Help
+              </button>
+              {activeMenu === 'help' && (
+                <div
+                  className="absolute left-0 top-full mt-1 w-48 bg-zinc-800 border border-zinc-700 rounded shadow-xl py-1 z-50"
+                  onClick={closeMenus}
+                >
+                  <button
+                    onClick={onOpenGuide}
+                    className="w-full text-left px-3 py-1.5 hover:bg-sky-600 flex items-center space-x-2"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>Instructions & Shortcuts</span>
                   </button>
                 </div>
               )}

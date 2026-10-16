@@ -985,16 +985,26 @@ export function App() {
     }
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (docX?: number, docY?: number) => {
     if (isDrawingManualRegion && manualRegionStartRef.current) {
-      const draft = manualRegionDraft;
+      const start = manualRegionStartRef.current;
       manualRegionStartRef.current = null;
+
+      let finalDraft = manualRegionDraft;
+      if (docX !== undefined && docY !== undefined) {
+        const x = Math.min(start.x, docX);
+        const y = Math.min(start.y, docY);
+        const width = Math.abs(docX - start.x);
+        const height = Math.abs(docY - start.y);
+        finalDraft = { x, y, width, height };
+      }
+
       setManualRegionDraft(null);
       setIsDrawingManualRegion(false);
 
-      if (draft && draft.width >= 5 && draft.height >= 5) {
+      if (finalDraft && finalDraft.width >= 5 && finalDraft.height >= 5) {
         updateActivePage((prev) => {
-          const { page: updatedPage } = addManualOcrRegion(prev, draft, '');
+          const { page: updatedPage } = addManualOcrRegion(prev, finalDraft, '');
           return updatedPage;
         }, 'Add Manual Text Region');
         setRightPanelTab('ocr');

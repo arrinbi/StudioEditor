@@ -1,5 +1,6 @@
 import type { OcrProviderAdapter, OcrSegmentInput } from './types';
 import type { OcrProviderConfig } from '../aiSettings';
+import { buildApiEndpointUrl } from '../aiSettings';
 import type { OcrRegion } from '../../types/editor';
 import { processRawDetectedRegions, type RawDetectedBox } from './validate';
 
@@ -17,9 +18,9 @@ export class OpenAiOcrAdapter implements OcrProviderAdapter {
     }
 
     const apiKey = config.apiKey.trim();
-    const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
+    const defaultBase = config.provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.sumopod.com/v1';
+    const { requestUrl: url } = buildApiEndpointUrl(config.baseUrl, defaultBase, '/chat/completions');
     const model = config.model || 'gpt-4o-mini';
-    const url = `${baseUrl}/chat/completions`;
 
     const dataUrl = input.canvas.toDataURL('image/jpeg', 0.92);
 
@@ -67,19 +68,8 @@ Return ONLY a valid JSON object matching this schema:
       response_format: { type: 'json_object' },
     };
 
-    let res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-      signal,
-    });
-
-    // Fallback if provider doesn't support response_format: { type: 'json_object' }
-    if (!res.ok && res.status === 400) {
-      delete requestBody.response_format;
+    let res: Response;
+    try {
       res = await fetch(url, {
         method: 'POST',
         headers: {
@@ -89,6 +79,30 @@ Return ONLY a valid JSON object matching this schema:
         body: JSON.stringify(requestBody),
         signal,
       });
+
+      // Fallback if provider doesn't support response_format: { type: 'json_object' }
+      if (!res.ok && res.status === 400) {
+        delete requestBody.response_format;
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal,
+        });
+      }
+    } catch (fetchErr) {
+      const rawErrStr = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      const isNetworkError = rawErrStr.toLowerCase().includes('failed to fetch') || rawErrStr.toLowerCase().includes('networkerror');
+
+      if (isNetworkError) {
+        throw new Error(
+          `Network/CORS error connecting to ${url}: The browser blocked the cross-origin vision request or the endpoint was unreachable. Ensure CORS headers are enabled or use a backend proxy.`
+        );
+      }
+      throw new Error(`Network error requesting ${url}: ${rawErrStr}`);
     }
 
     if (!res.ok) {

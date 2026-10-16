@@ -3,6 +3,7 @@ import {
   getOcrConfig,
   saveOcrConfig,
   clearOcrApiKeys,
+  buildApiEndpointUrl,
   type OcrProviderConfig,
 } from '../services/aiSettings';
 import { generatePageSegments } from '../services/ocr/segmentation';
@@ -435,6 +436,76 @@ describe('OCR Provider Adapters & Mock Network Operations', () => {
       persistApiKey: false,
     });
     expect(geminiRes.success).toBe(true);
+    vi.restoreAllMocks();
+  });
+});
+
+describe('URL Sanitation & Network/CORS Error Diagnostics', () => {
+  it('should construct clean endpoint URLs without duplicated path segments or trailing slashes', () => {
+    // Basic URL
+    const url1 = buildApiEndpointUrl('https://api.sumopod.com/v1', 'https://api.sumopod.com/v1', '/models');
+    expect(url1.requestUrl).toBe('https://api.sumopod.com/v1/models');
+
+    // Trailing slash
+    const url2 = buildApiEndpointUrl('https://api.sumopod.com/v1/', 'https://api.sumopod.com/v1', '/models');
+    expect(url2.requestUrl).toBe('https://api.sumopod.com/v1/models');
+
+    // Pre-appended /models endpoint path in user input
+    const url3 = buildApiEndpointUrl('https://api.sumopod.com/v1/models', 'https://api.sumopod.com/v1', '/models');
+    expect(url3.requestUrl).toBe('https://api.sumopod.com/v1/models');
+
+    // Pre-appended /chat/completions endpoint path in user input
+    const url4 = buildApiEndpointUrl('https://api.sumopod.com/v1/chat/completions/', 'https://api.sumopod.com/v1', '/chat/completions');
+    expect(url4.requestUrl).toBe('https://api.sumopod.com/v1/chat/completions');
+  });
+
+  it('should distinguish browser CORS/Failed to fetch errors from HTTP API responses', async () => {
+    // Mock TypeError: Failed to fetch (browser CORS or network failure)
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    const testRes = await testProviderConnection({
+      provider: 'openai-compatible',
+      apiKey: 'test_secret_key_999',
+      model: 'gpt-4o',
+      baseUrl: 'https://api.sumopod.com/v1',
+      targetLanguage: 'auto',
+      maxSegmentHeight: 1500,
+      overlapHeight: 150,
+      persistApiKey: false,
+    });
+
+    expect(testRes.success).toBe(false);
+    expect(testRes.message).toContain('Network/CORS error');
+    expect(testRes.message).toContain('browser blocked the cross-origin request');
+    // Ensure API key is NOT in the error message
+    expect(testRes.message).not.toContain('test_secret_key_999');
+
+    vi.restoreAllMocks();
+  });
+
+  it('should report actual HTTP response errors (e.g., 401 Unauthorized)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      json: async () => ({ error: { message: 'Incorrect API key provided' } }),
+    } as Response);
+
+    const testRes = await testProviderConnection({
+      provider: 'openai-compatible',
+      apiKey: 'invalid_key',
+      model: 'gpt-4o',
+      baseUrl: 'https://api.sumopod.com/v1',
+      targetLanguage: 'auto',
+      maxSegmentHeight: 1500,
+      overlapHeight: 150,
+      persistApiKey: false,
+    });
+
+    expect(testRes.success).toBe(false);
+    expect(testRes.message).toContain('401');
+    expect(testRes.message).toContain('Incorrect API key provided');
+
     vi.restoreAllMocks();
   });
 });

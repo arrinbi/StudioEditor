@@ -172,6 +172,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     placeholder="https://api.sumopod.com/v1"
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg py-2 px-3 text-xs text-zinc-100 focus:outline-none focus:border-sky-500 font-mono"
                   />
+                  <p className="text-[10px] text-zinc-400 leading-normal mt-1">
+                    Note on Browser API Access & CORS: Direct browser requests require the target endpoint to send valid cross-origin CORS headers (<code className="text-sky-300 font-mono">Access-Control-Allow-Origin: *</code>). If a provider restricts direct web browser access, requests fail with a network/CORS error (<code className="text-rose-300 font-mono">Failed to fetch</code>). Route through a CORS-enabled proxy server if the target provider blocks browser origin requests.
+                  </p>
                 </div>
               )}
 

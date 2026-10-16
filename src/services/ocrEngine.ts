@@ -54,6 +54,17 @@ export async function runOcrEngine(
 
   const config = options.config || getOcrConfig();
 
+  // Validate API key upfront for AI vision providers
+  if (config.provider !== 'tesseract' && (!config.apiKey || !config.apiKey.trim())) {
+    const providerLabel =
+      config.provider === 'gemini'
+        ? 'Google Gemini API'
+        : config.provider === 'openai'
+        ? 'OpenAI API'
+        : 'OpenAI-Compatible API';
+    throw new Error(`${providerLabel} Key is required. Please configure your API key in Settings.`);
+  }
+
   // Convert imageSource to canvas if HTMLCanvasElement
   let sourceCanvas: HTMLCanvasElement;
   if (imageSource instanceof HTMLCanvasElement) {
@@ -81,6 +92,7 @@ export async function runOcrEngine(
   const adapter = getOcrAdapter(config.provider);
   const collectedRegions: OcrRegion[] = [];
   const failedSegments: number[] = [];
+  const segmentErrors: string[] = [];
 
   // Filter segments if retrying a specific segment
   const targetSegments =
@@ -108,10 +120,20 @@ export async function runOcrEngine(
       const segRegions = await adapter.recognizeSegment(seg, config, options.signal);
       collectedRegions.push(...segRegions);
     } catch (err) {
+      if (options.signal?.aborted) {
+        throw new Error('OCR operation canceled by user.');
+      }
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`Segment ${segDisplayNum} OCR failed: ${msg}`);
       failedSegments.push(seg.segmentIndex);
+      segmentErrors.push(msg);
     }
+  }
+
+  // If ALL target segments failed, throw an error so handleRunOcr displays failure feedback
+  if (targetSegments.length > 0 && failedSegments.length === targetSegments.length) {
+    const primaryError = segmentErrors[0] || 'OCR failed for all image segments.';
+    throw new Error(primaryError);
   }
 
   // Combine with existing regions if retrying a segment
@@ -158,7 +180,7 @@ export async function runOcrEngine(
   return finalRegions;
 }
 
-async function runTesseractFallback(
+export async function runTesseractFallback(
   imageSource: HTMLCanvasElement | HTMLImageElement | string,
   options: RunOcrOptions
 ): Promise<OcrRegion[]> {

@@ -1,7 +1,7 @@
 import type { OcrProviderAdapter, OcrSegmentInput } from './types';
 import type { OcrProviderConfig } from '../aiSettings';
 import type { OcrRegion } from '../../types/editor';
-import { runOcrEngine, type OcrLanguage } from '../ocrEngine';
+import { runTesseractFallback, type OcrLanguage } from '../ocrEngine';
 
 export class TesseractOcrAdapter implements OcrProviderAdapter {
   id = 'tesseract';
@@ -9,15 +9,17 @@ export class TesseractOcrAdapter implements OcrProviderAdapter {
 
   async recognizeSegment(
     input: OcrSegmentInput,
-    config: OcrProviderConfig
+    config: OcrProviderConfig,
+    signal?: AbortSignal
   ): Promise<OcrRegion[]> {
     const lang = (config.model || 'eng+ind') as OcrLanguage;
 
-    const segmentRegions = await runOcrEngine(input.canvas, {
+    const segmentRegions = await runTesseractFallback(input.canvas, {
       lang,
       pageId: input.pageId,
       sourceWidth: input.segmentWidth,
       sourceHeight: input.segmentHeight,
+      signal,
     });
 
     // Map segment-relative coordinates to full-page coordinates

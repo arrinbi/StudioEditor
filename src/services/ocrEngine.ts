@@ -1,11 +1,21 @@
 import { createWorker, type Worker } from 'tesseract.js';
 import type { OcrRegion } from '../types/editor';
+import type { OcrProviderConfig } from './aiSettings';
+import { getOcrConfig } from './aiSettings';
+import {
+  getOcrAdapter,
+  generatePageSegments,
+  postProcessOcrRegions,
+} from './ocr';
 
 export type OcrLanguage = 'eng' | 'ind' | 'eng+ind';
 
 export interface OcrProgress {
   status: string;
   progress: number;
+  currentSegment?: number;
+  totalSegments?: number;
+  failedSegments?: number[];
 }
 
 export interface RunOcrOptions {
@@ -13,7 +23,11 @@ export interface RunOcrOptions {
   pageId: string;
   sourceWidth: number;
   sourceHeight: number;
+  config?: OcrProviderConfig;
   onProgress?: (progress: OcrProgress) => void;
+  signal?: AbortSignal;
+  retrySegmentIndex?: number;
+  existingRegions?: OcrRegion[];
 }
 
 let mockOcrFn: ((imageSource: HTMLCanvasElement | HTMLImageElement | string, options: RunOcrOptions) => Promise<OcrRegion[]>) | null = null;
@@ -28,7 +42,7 @@ export function setMockOcrEngine(
 }
 
 /**
- * Runs OCR on the provided image source (canvas, HTMLImageElement, or data URL) using Tesseract.js.
+ * Runs OCR on the provided image source using either Tesseract or configured AI OCR vision providers.
  */
 export async function runOcrEngine(
   imageSource: HTMLCanvasElement | HTMLImageElement | string,
@@ -38,6 +52,116 @@ export async function runOcrEngine(
     return mockOcrFn(imageSource, options);
   }
 
+  const config = options.config || getOcrConfig();
+
+  // Convert imageSource to canvas if HTMLCanvasElement
+  let sourceCanvas: HTMLCanvasElement;
+  if (imageSource instanceof HTMLCanvasElement) {
+    sourceCanvas = imageSource;
+  } else {
+    // For Tesseract fallback or element
+    return runTesseractFallback(imageSource, options);
+  }
+
+  // Generate page segments
+  const segments = generatePageSegments(sourceCanvas, {
+    maxSegmentHeight: config.maxSegmentHeight,
+    overlapHeight: config.overlapHeight,
+    pageId: options.pageId,
+  });
+
+  const totalSegments = segments.length;
+  options.onProgress?.({
+    status: `Prepared ${totalSegments} segment${totalSegments === 1 ? '' : 's'} for processing...`,
+    progress: 0.05,
+    currentSegment: 0,
+    totalSegments,
+  });
+
+  const adapter = getOcrAdapter(config.provider);
+  const collectedRegions: OcrRegion[] = [];
+  const failedSegments: number[] = [];
+
+  // Filter segments if retrying a specific segment
+  const targetSegments =
+    options.retrySegmentIndex !== undefined && options.retrySegmentIndex >= 0
+      ? segments.filter((s) => s.segmentIndex === options.retrySegmentIndex)
+      : segments;
+
+  for (let idx = 0; idx < targetSegments.length; idx++) {
+    if (options.signal?.aborted) {
+      throw new Error('OCR operation canceled by user.');
+    }
+
+    const seg = targetSegments[idx];
+    const segDisplayNum = seg.segmentIndex + 1;
+
+    options.onProgress?.({
+      status: `Processing segment ${segDisplayNum} of ${totalSegments} (${adapter.name})...`,
+      progress: Math.round(((idx + 0.1) / targetSegments.length) * 100) / 100,
+      currentSegment: segDisplayNum,
+      totalSegments,
+      failedSegments,
+    });
+
+    try {
+      const segRegions = await adapter.recognizeSegment(seg, config, options.signal);
+      collectedRegions.push(...segRegions);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`Segment ${segDisplayNum} OCR failed: ${msg}`);
+      failedSegments.push(seg.segmentIndex);
+    }
+  }
+
+  // Combine with existing regions if retrying a segment
+  let allRegions = collectedRegions;
+  if (options.retrySegmentIndex !== undefined && options.existingRegions) {
+    const existingOther = options.existingRegions.filter((r) => {
+      // Retain regions not from the retried segment area
+      const targetSeg = segments.find((s) => s.segmentIndex === options.retrySegmentIndex);
+      if (!targetSeg) return true;
+
+      const segTop = targetSeg.offsetY;
+      const segBottom = targetSeg.offsetY + targetSeg.segmentHeight;
+      return r.bbox.y < segTop || r.bbox.y > segBottom;
+    });
+
+    allRegions = [...existingOther, ...collectedRegions];
+  }
+
+  // Deduplicate and sort final regions
+  options.onProgress?.({
+    status: 'Deduplicating and formatting bounding boxes...',
+    progress: 0.95,
+    currentSegment: totalSegments,
+    totalSegments,
+    failedSegments,
+  });
+
+  const finalRegions = postProcessOcrRegions(
+    allRegions,
+    options.sourceWidth,
+    options.sourceHeight
+  );
+
+  options.onProgress?.({
+    status: failedSegments.length > 0
+      ? `Completed with warnings (${failedSegments.length} segment(s) failed).`
+      : 'Complete',
+    progress: 1,
+    currentSegment: totalSegments,
+    totalSegments,
+    failedSegments,
+  });
+
+  return finalRegions;
+}
+
+async function runTesseractFallback(
+  imageSource: HTMLCanvasElement | HTMLImageElement | string,
+  options: RunOcrOptions
+): Promise<OcrRegion[]> {
   const lang = options.lang || 'eng';
   const langArg = lang === 'eng+ind' ? ['eng', 'ind'] : lang;
 
@@ -132,22 +256,6 @@ export async function runOcrEngine(
           sourceHeight: options.sourceHeight,
         });
       }
-    } else if (result.data.text && result.data.text.trim()) {
-      const cleanText = result.data.text.trim();
-      regions.push({
-        id: `ocr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        pageId: options.pageId,
-        text: cleanText,
-        confidence: Math.round(result.data.confidence ?? 0),
-        bbox: {
-          x: 10,
-          y: 10,
-          width: Math.max(100, options.sourceWidth - 20),
-          height: Math.max(50, options.sourceHeight - 20),
-        },
-        sourceWidth: options.sourceWidth,
-        sourceHeight: options.sourceHeight,
-      });
     }
 
     options.onProgress?.({ status: 'Complete', progress: 1 });

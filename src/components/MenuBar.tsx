@@ -19,10 +19,12 @@ import {
   FileCheck,
   Archive,
   ScanText,
+  Key,
 } from 'lucide-react';
 
 interface MenuBarProps {
   onOpenOcrPanel?: () => void;
+  onOpenSettings?: () => void;
   onNewDocument: () => void;
   onOpenImage: () => void;
   onExport: (format: 'png' | 'jpg' | 'webp') => void;
@@ -71,6 +73,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   onFlipDocument,
   onOpenAdjustments,
   onOpenOcrPanel,
+  onOpenSettings,
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
 
@@ -318,7 +321,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               </button>
               {activeMenu === 'scanlation' && (
                 <div
-                  className="absolute left-0 top-full mt-1 w-52 bg-zinc-800 border border-zinc-700 rounded shadow-xl py-1 z-50"
+                  className="absolute left-0 top-full mt-1 w-56 bg-zinc-800 border border-zinc-700 rounded shadow-xl py-1 z-50"
                   onClick={closeMenus}
                 >
                   <button
@@ -327,6 +330,14 @@ export const MenuBar: React.FC<MenuBarProps> = ({
                   >
                     <ScanText className="w-3.5 h-3.5" />
                     <span>OCR Detection Panel...</span>
+                  </button>
+                  <div className="my-1 border-t border-zinc-700" />
+                  <button
+                    onClick={onOpenSettings}
+                    className="w-full text-left px-3 py-1.5 hover:bg-sky-600 flex items-center space-x-2 text-amber-300 font-medium"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>API & OCR Provider Settings...</span>
                   </button>
                 </div>
               )}

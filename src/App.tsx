@@ -9,6 +9,7 @@ import { NewDocumentModal } from './components/NewDocumentModal';
 import { GuideModal } from './components/GuideModal';
 import { AdjustmentsModal } from './components/AdjustmentsModal';
 import { ResizeCanvasModal } from './components/ResizeCanvasModal';
+import { SettingsModal } from './components/SettingsModal';
 import type {
   DocumentState,
   ProjectState,
@@ -114,6 +115,7 @@ export function App() {
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
   const [isAdjustmentsModalOpen, setIsAdjustmentsModalOpen] = useState(false);
   const [isResizeModalOpen, setIsResizeModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
 
@@ -1018,6 +1020,7 @@ export function App() {
         onFlipDocument={handleFlipDocument}
         onOpenAdjustments={() => setIsAdjustmentsModalOpen(true)}
         onOpenOcrPanel={() => setRightPanelTab('ocr')}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
       />
 
       {exportMessage && (
@@ -1153,6 +1156,11 @@ export function App() {
         currentWidth={activeDocument.width}
         currentHeight={activeDocument.height}
         onResize={handleResizeCanvas}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsModalOpen}
+        onClose={() => setIsSettingsModalOpen(false)}
       />
     </div>
   );

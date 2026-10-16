@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import type { Page, OcrRegion, ProjectState } from '../types/editor';
 import {
   addManualOcrRegion,
@@ -6,7 +6,10 @@ import {
   updateOcrRegionText,
   updateOcrRegionBBox,
   deleteOcrRegion,
+  cropCanvasRegion,
 } from '../core/ocr';
+import { runCropOcrEngine, setMockOcrEngine } from '../services/ocrEngine';
+import { createOffscreenCanvas } from '../core/engine';
 import { saveProjectStateToIDB, loadProjectFromIDB } from '../services/storage';
 
 describe('Manual OCR Text Region Functionality', () => {
@@ -142,6 +145,98 @@ describe('Manual OCR Text Region Functionality', () => {
     expect(restoredManual?.source).toBe('manual');
     expect(restoredManual?.text).toBe('Persisted Manual Text');
     expect(restoredManual?.bbox).toEqual({ x: 75, y: 150, width: 180, height: 90 });
+  });
+
+  describe('Crop Extraction and Crop OCR Recognition', () => {
+    afterEach(() => {
+      setMockOcrEngine(null);
+    });
+
+    it('should crop source canvas to bounding box with clamping', () => {
+      const canvas = createOffscreenCanvas(500, 500);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(100, 100, 200, 200);
+      }
+
+      const cropped = cropCanvasRegion(canvas, { x: 100, y: 100, width: 200, height: 200 });
+      expect(cropped.width).toBe(200);
+      expect(cropped.height).toBe(200);
+
+      // Clamping check for out-of-bounds crop
+      const clamped = cropCanvasRegion(canvas, { x: 450, y: 450, width: 100, height: 100 });
+      expect(clamped.width).toBe(50);
+      expect(clamped.height).toBe(50);
+    });
+
+    it('should run OCR on cropped canvas and map relative coordinates back to page pixel space', async () => {
+      setMockOcrEngine(async (_img, options) => {
+        return [
+          {
+            id: 'mock_crop_1',
+            pageId: options.pageId,
+            text: 'Recognized In Crop',
+            confidence: 96,
+            bbox: { x: 10, y: 15, width: 80, height: 30 },
+            sourceWidth: options.sourceWidth,
+            sourceHeight: options.sourceHeight,
+          },
+        ];
+      });
+
+      const cropCanvas = createOffscreenCanvas(200, 100);
+      const cropBBox = { x: 150, y: 300, width: 200, height: 100 };
+
+      const results = await runCropOcrEngine(cropCanvas, cropBBox, {
+        pageId: 'page_manual_test',
+        sourceWidth: 1000,
+        sourceHeight: 1500,
+        config: {
+          provider: 'openai-compatible',
+          apiKey: 'mock_key',
+          model: 'custom',
+          baseUrl: '',
+          targetLanguage: 'auto',
+          maxSegmentHeight: 1500,
+          overlapHeight: 150,
+          persistApiKey: false,
+        },
+      });
+
+      expect(results.length).toBe(1);
+      expect(results[0].text).toBe('Recognized In Crop');
+      // Relative bbox (10, 15) mapped back to full page (150 + 10, 300 + 15) => (160, 315)
+      expect(results[0].bbox).toEqual({ x: 160, y: 315, width: 80, height: 30 });
+    });
+
+    it('should fallback to empty region covering selected box when crop OCR yields no text', async () => {
+      setMockOcrEngine(async () => []); // Return no text detected
+
+      const cropCanvas = createOffscreenCanvas(100, 50);
+      const cropBBox = { x: 200, y: 400, width: 100, height: 50 };
+
+      const results = await runCropOcrEngine(cropCanvas, cropBBox, {
+        pageId: 'page_manual_test',
+        sourceWidth: 1000,
+        sourceHeight: 1500,
+        config: {
+          provider: 'openai-compatible',
+          apiKey: 'mock_key',
+          model: 'custom',
+          baseUrl: '',
+          targetLanguage: 'auto',
+          maxSegmentHeight: 1500,
+          overlapHeight: 150,
+          persistApiKey: false,
+        },
+      });
+
+      expect(results.length).toBe(1);
+      expect(results[0].text).toBe('');
+      expect(results[0].source).toBe('manual');
+      expect(results[0].bbox).toEqual({ x: 200, y: 400, width: 100, height: 50 });
+    });
   });
 
   it('should handle pointer down/move/up drawing flow, coordinate mapping under zoom/pan, ignoring small boxes (<5px), and stationary viewport', () => {

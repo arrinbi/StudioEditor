@@ -30,6 +30,9 @@ interface OcrPanelProps {
   isDrawingManualRegion?: boolean;
   onStartDrawManualRegion?: () => void;
   onCancelDrawManualRegion?: () => void;
+  scope?: 'composite' | string;
+  onScopeChange?: (scope: 'composite' | string) => void;
+  isCropOcrRunning?: boolean;
   onUpdatePage: (updater: (prevPage: Page) => Page, description?: string) => void;
   onSelectOcrRegion: (regionId: string | null) => void;
   onUpdateText: (regionId: string, newText: string) => void;
@@ -48,6 +51,9 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
   isDrawingManualRegion = false,
   onStartDrawManualRegion,
   onCancelDrawManualRegion,
+  scope: externalScope,
+  onScopeChange,
+  isCropOcrRunning = false,
   onUpdatePage,
   onSelectOcrRegion,
   onUpdateText,
@@ -55,7 +61,13 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
   onClearAllRegions,
 }) => {
   const [config, setConfig] = useState<OcrProviderConfig>(() => getOcrConfig());
-  const [scope, setScope] = useState<'composite' | string>('composite');
+  const [internalScope, setInternalScope] = useState<'composite' | string>('composite');
+  const scope = externalScope !== undefined ? externalScope : internalScope;
+  const setScope = (val: 'composite' | string) => {
+    setInternalScope(val);
+    onScopeChange?.(val);
+  };
+
   const [mode, setMode] = useState<'replace' | 'merge'>('replace');
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -278,8 +290,16 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
             )}
           </div>
 
-          {/* Manual Text Region Button */}
-          {isDrawingManualRegion ? (
+          {/* Manual Text Region Button / Loading State */}
+          {isCropOcrRunning ? (
+            <div className="p-2.5 bg-purple-950/90 border border-purple-500/80 rounded-lg flex items-center space-x-2 text-xs text-purple-200 shadow">
+              <RefreshCw className="w-4 h-4 text-purple-400 animate-spin shrink-0" />
+              <div className="flex-1 overflow-hidden">
+                <span className="font-semibold block text-[11px]">Recognizing Crop OCR...</span>
+                <span className="text-[10px] text-purple-300 opacity-80 block truncate">Running OCR on selected box area</span>
+              </div>
+            </div>
+          ) : isDrawingManualRegion ? (
             <div className="p-2 bg-purple-950/80 border border-purple-600/80 rounded-lg flex items-center justify-between text-xs text-purple-200 animate-pulse">
               <div className="flex items-center space-x-1.5">
                 <MousePointerClick className="w-4 h-4 text-purple-400 shrink-0" />

@@ -176,6 +176,41 @@ export function selectOcrRegion(
 }
 
 /**
+ * Crops a bounding box area from a source HTMLCanvasElement and returns a new offscreen canvas.
+ * Handles coordinate clamping to source canvas dimensions and validates minimum bounds.
+ */
+export function cropCanvasRegion(
+  sourceCanvas: HTMLCanvasElement,
+  bbox: { x: number; y: number; width: number; height: number }
+): HTMLCanvasElement {
+  const srcWidth = sourceCanvas.width;
+  const srcHeight = sourceCanvas.height;
+
+  const cropX = Math.max(0, Math.min(srcWidth - 1, Math.round(bbox.x)));
+  const cropY = Math.max(0, Math.min(srcHeight - 1, Math.round(bbox.y)));
+  const cropW = Math.max(1, Math.min(srcWidth - cropX, Math.round(bbox.width)));
+  const cropH = Math.max(1, Math.min(srcHeight - cropY, Math.round(bbox.height)));
+
+  const cropCanvas = createOffscreenCanvas(cropW, cropH);
+  const ctx = cropCanvas.getContext('2d');
+  if (ctx) {
+    ctx.drawImage(
+      sourceCanvas,
+      cropX,
+      cropY,
+      cropW,
+      cropH,
+      0,
+      0,
+      cropW,
+      cropH
+    );
+  }
+
+  return cropCanvas;
+}
+
+/**
  * Extracts a clean HTMLCanvasElement from either a specific layer or full page composite,
  * free of editor overlays, selection marquee handles, and UI overlays.
  */

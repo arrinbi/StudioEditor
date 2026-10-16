@@ -63,8 +63,12 @@ import {
   deleteOcrRegion,
   clearAllOcrRegions,
   selectOcrRegion,
-  addManualOcrRegion,
+  extractOcrSourceCanvas,
+  cropCanvasRegion,
+  addOcrRegions,
 } from './core/ocr';
+import { runCropOcrEngine } from './services/ocrEngine';
+import { getOcrConfig } from './services/aiSettings';
 import { calculateFitToScreenViewport } from './utils/viewport';
 import { saveProjectStateToIDB, getProjectsFromIDB, loadProjectFromIDB } from './services/storage';
 
@@ -120,9 +124,11 @@ export function App() {
   const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
 
-  // Manual OCR Region Drawing State
+  // Manual OCR Region Drawing & Recognition State
   const [isDrawingManualRegion, setIsDrawingManualRegion] = useState(false);
   const [manualRegionDraft, setManualRegionDraft] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [ocrScope, setOcrScope] = useState<'composite' | string>('composite');
+  const [isCropOcrRunning, setIsCropOcrRunning] = useState(false);
   const manualRegionStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Per-page History Managers
@@ -1003,11 +1009,53 @@ export function App() {
       setIsDrawingManualRegion(false);
 
       if (finalDraft && finalDraft.width >= 5 && finalDraft.height >= 5) {
-        updateActivePage((prev) => {
-          const { page: updatedPage } = addManualOcrRegion(prev, finalDraft, '');
-          return updatedPage;
-        }, 'Add Manual Text Region');
+        const targetBBox = {
+          x: Math.round(finalDraft.x),
+          y: Math.round(finalDraft.y),
+          width: Math.round(finalDraft.width),
+          height: Math.round(finalDraft.height),
+        };
+
         setRightPanelTab('ocr');
+        setIsCropOcrRunning(true);
+
+        (async () => {
+          try {
+            const fullSourceCanvas = extractOcrSourceCanvas(
+              activePage,
+              ocrScope === 'composite' ? null : ocrScope
+            );
+            const cropped = cropCanvasRegion(fullSourceCanvas, targetBBox);
+            const currentConfig = getOcrConfig();
+
+            const recognizedRegions = await runCropOcrEngine(cropped, targetBBox, {
+              lang: (currentConfig.model || 'eng+ind') as 'eng' | 'ind' | 'eng+ind',
+              pageId: activePage.id,
+              sourceWidth: activePage.width,
+              sourceHeight: activePage.height,
+              config: currentConfig,
+            });
+
+            updateActivePage((prev) => addOcrRegions(prev, recognizedRegions, 'merge'), 'Add Manual OCR Region');
+          } catch (err) {
+            console.error('Crop OCR failed:', err);
+            // Fallback: create empty region on error
+            updateActivePage((prev) => addOcrRegions(prev, [
+              {
+                id: `manual_ocr_fallback_${Date.now()}`,
+                pageId: activePage.id,
+                text: '',
+                confidence: 100,
+                bbox: targetBBox,
+                sourceWidth: activePage.width,
+                sourceHeight: activePage.height,
+                source: 'manual',
+              }
+            ], 'merge'), 'Add Manual Text Region (Fallback)');
+          } finally {
+            setIsCropOcrRunning(false);
+          }
+        })();
       }
       return;
     }
@@ -1173,6 +1221,9 @@ export function App() {
             setManualRegionDraft(null);
             manualRegionStartRef.current = null;
           }}
+          ocrScope={ocrScope}
+          onOcrScopeChange={setOcrScope}
+          isCropOcrRunning={isCropOcrRunning}
           onUpdatePage={updateActivePage}
           onSelectOcrRegion={handleSelectOcrRegion}
           onUpdateOcrText={handleUpdateOcrText}

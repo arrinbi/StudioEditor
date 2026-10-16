@@ -103,7 +103,12 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
       });
 
       onUpdatePage((prev) => addOcrRegions(prev, results, mode), 'Run OCR Pipeline');
-      setProgress(null);
+      // If no failed segments, clear progress bar; otherwise retain for retry option
+      setProgress((lastProgress) =>
+        lastProgress?.failedSegments && lastProgress.failedSegments.length > 0
+          ? lastProgress
+          : null
+      );
     } catch (err) {
       if (abortController.signal.aborted) {
         setError('OCR operation canceled by user.');

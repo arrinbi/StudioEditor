@@ -51,19 +51,19 @@ A complete audit of the codebase, architecture, dependencies, and test suite was
 | **Tools** | Brush Tool (`B`) | **Verified Working** | Configurable color, size (1-200px), opacity, and soft shadow blur hardness. |
 | **Tools** | Eraser Tool (`E`) | **Verified Working** | Configurable size and opacity using `destination-out` composite. |
 | **Tools** | Marquee Selection (`M`) | **Verified Working** | Rectangular marquee, Clear selection (`clearRect`), Fill selection (`fillRect`). |
-| **Tools** | Text Tool (`T`) | **Partially Implemented** | Data types & composite export exist; missing toolbar button, canvas stage tool, and UI editor. |
-| **Tools** | Eyedropper / Color Picker | **Missing** | Color swatch input exists; canvas pixel eyedropper tool is missing. |
+| **Tools** | Text Tool (`T`) | **Verified Working** | Interactive Konva Text node with transformer handles and on-canvas editing overlay. |
+| **Tools** | Eyedropper / Color Picker | **Verified Working** | Canvas pixel eyedropper tool (`I`) for color sampling. |
 | **Tools** | Shape Tools (Rect/Ellipse/Bubble) | **Missing** | No shape tools or vector shape creation. |
 | **Layer Pipeline** | Layer CRUD Operations | **Verified Working** | Add, rename (double click), duplicate, delete, reorder (up/down). |
 | **Layer Pipeline** | Layer Settings | **Verified Working** | Toggle visibility (`Eye`), toggle lock (`Lock`), opacity slider (0-100%). |
 | **Layer Pipeline** | Layer Protection | **Verified Working** | Prevents accidental deletion of protected base image layer. |
 | **History & Shortcuts**| Undo / Redo | **Verified Working** | Full stack with snapshotting; `Ctrl+Z` / `Ctrl+Y`. |
 | **History & Shortcuts**| History Jump | **Verified Working** | Click any step in History panel to jump to state. |
-| **History & Shortcuts**| Keyboard Shortcuts | **Verified Working** | `V`, `B`, `E`, `M`, `H`, `Z`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A`, `Esc`. |
-| **Transform / Crop**| Canvas Crop & Resize | **Missing** | No document cropping or canvas resize modal. |
-| **Transform / Crop**| Image Rotation & Flip | **Missing** | No 90°/180° rotation or horizontal/vertical flip. |
-| **Transform / Crop**| Free Transform Handles | **Missing** | Layer move works, but visual transform handles (scale/skew/rotate) are missing. |
-| **Adjustments** | Image Adjustments | **Missing** | No brightness/contrast, levels, hue/saturation, or invert controls. |
+| **History & Shortcuts**| Keyboard Shortcuts | **Verified Working** | `V`, `B`, `E`, `T`, `I`, `M`, `H`, `Z`, `Ctrl+Z`, `Ctrl+Y`, `Ctrl+A`, `Esc`. |
+| **Transform / Crop**| Canvas Crop & Resize | **Verified Working** | Crop to selection, Resize canvas modal with anchor points. |
+| **Transform / Crop**| Image Rotation & Flip | **Verified Working** | 90° CW/CCW, 180°, Horizontal/Vertical flip. |
+| **Transform / Crop**| Free Transform Handles | **Verified Working** | Visual transform handles (scale/rotate/move) via Konva.Transformer. |
+| **Adjustments** | Image Adjustments | **Verified Working** | Brightness, Contrast, Invert, Grayscale, Blur controls. |
 
 ---
 
@@ -73,72 +73,57 @@ A complete audit of the codebase, architecture, dependencies, and test suite was
 | :--- | :--- | :--- | :--- |
 | **Text Cleaning** | Manual Brush / Eraser cleaning | **Verified Working** | High-precision brush and eraser with opacity/hardness control. |
 | **Text Cleaning** | Marquee Clear / Fill | **Verified Working** | Draw selection over speech bubbles -> Clear or Fill with background color. |
-| **Text Cleaning** | AI Inpainting / Background Restore | **Missing** | Requires client-side WASM or external AI API (e.g. LaMa / Stable Diffusion inpainting) with interactive Preview Accept/Reject modal. |
-| **OCR** | Speech bubble auto-detection | **Missing** | Requires vision model / contour detection for bubble bounding boxes. |
-| **OCR** | Optical Character Recognition | **Missing** | Requires Tesseract.js (client-side WASM OCR) or external Cloud OCR API (Google Vision / MangaOCR). |
-| **Translation** | Translation management workflow | **Missing** | Needs Translation Panel showing side-by-side detected source text, edited original text, and target translation (optional auto-translate via LLM API). |
-| **Typesetting** | On-canvas movable text objects | **Partially Implemented** | `TextLayer` type exists, rendered in composite export; needs interactive Konva Text node with transformer handles. |
-| **Typesetting** | Rich Text Formatting | **Missing** | Needs font selector, font size, bold/italic, fill color, stroke/outline color & width, line height, alignment, auto word-wrap / bubble fitting. |
+| **OCR (AI Vision)** | Speech bubble & text detection | **Verified Working** | AI Vision OCR (Gemini API, OpenAI API, SumoPod, Tesseract WASM) with tight bounding boxes around text. |
+| **OCR (Segmentation)**| Long Manhwa Page Slicing | **Verified Working** | Automatic vertical slicing with configurable overlap, coordinate reconstruction, IoU deduplication. |
+| **OCR (Settings)** | BYOK API Key Settings | **Verified Working** | Configurable providers, masked key input, Test Connection, security notices, session storage. |
 
 ---
 
-### C. Multi-Page & Export Capabilities
+## 7. Phase 3A.1 Implementation & Manual Real-Provider Verification Procedure
 
-| Export Format / Scope | Status | Details / Technical Requirements |
-| :--- | :--- | :--- |
-| **Single Page PNG Export** | **Verified Working** | Offscreen composite canvas export at native image dimensions. |
-| **Single Page JPEG Export** | **Verified Working** | Offscreen composite JPEG export with 0.95 quality. |
-| **Single Page WebP Export** | **Missing** | Requires adding `'webp'` format to `exportDocumentFile` (`canvas.toDataURL('image/webp')`). |
-| **Multi-Page Document Model**| **Missing** | App current state is single-document. Needs Multi-Page project model (page sidebar/strip, page reordering, page add/delete). |
-| **PDF Export (Single / Multi)**| **Missing** | Requires `jspdf` library integration to render pages into multi-page PDF document. |
-| **ZIP Batch Page Export** | **Missing** | Requires `JSZip` library integration to package all page exports into a single download archive. |
+### A. Phase 3A.1 Features Summary
+1. **API Key Settings and BYOK Architecture**:
+   - Provider settings modal (`SettingsModal.tsx`) supporting Google Gemini API (`gemini-1.5-flash`, `gemini-2.0-flash`, `gemini-1.5-pro`), OpenAI API (`gpt-4o`, `gpt-4o-mini`), OpenAI-compatible services (SumoPod, LocalAI), and local Tesseract.js.
+   - Masked API key input with show/hide toggle, model selection, custom API base URL, and "Test Connection" action.
+   - Session-only API key storage by default, or persistent LocalStorage with clear security warnings.
+   - Strict credential isolation: API keys are NEVER saved in IndexedDB project state, exported JSON, PDF, or ZIP files.
 
----
+2. **Long Manhwa Page Automatic Segmentation**:
+   - `SegmentationManager` (`src/services/ocr/segmentation.ts`) slices long vertical webtoon/manhwa images (e.g., 1080x6000px) into sequential vertical segments (default 1500px max height, 150px overlap) at 1:1 pixel resolution without downscaling.
+   - Maps segment-relative bounding box coordinates `(sx, sy)` back to full page pixel coordinates `(px, py + offsetY)`.
 
-## 4. Technical Limitations & External Dependencies
+3. **Tight Bounding Box Validation & Deduplication**:
+   - Prompts AI models to output tight text-line or text-group boxes rather than whole speech bubble outlines.
+   - `postProcessOcrRegions` (`src/services/ocr/postProcess.ts`) calculates Intersection over Union (IoU) and text similarity to deduplicate text detected in overlapping segment boundaries.
+   - Rejects hallucinated full-page boxes and sorts regions in top-to-bottom reading order.
 
-1. **OCR Engine**:
-   - *Option A (Pure Offline/Client)*: `tesseract.js` (WebAssembly). Good for standard printed text; may require pre-processing (binarization/contrast boost) for manga/manhwa text.
-   - *Option B (Cloud / Specialized API)*: External MangaOCR endpoint or Google Vision API for Japanese/Korean/Chinese manga text extraction.
-2. **AI Inpainting / Cleaning**:
-   - Heavy AI models (e.g., LaMa, Manga Inpainter) cannot run efficiently in browser JS without WebGPU/WASM or server API.
-   - For pure web browser client without GPU servers, a smart patch-match inpainting algorithm or external API endpoint with a Preview Accept/Reject workflow must be provided.
-3. **Multi-Page Storage Limits**:
-   - Storing full-resolution raw canvas snapshots for multiple 4K/8K webtoon pages in IndexedDB can reach browser quota limits.
-   - Strategy: Store compressed JPEG/PNG blobs or serialized vector layers for multi-page documents.
-4. **PDF & ZIP Generation**:
-   - Client-side PDF (`jspdf`) and ZIP packaging (`jszip`) are fully compatible with web browser deployment on GitHub Pages.
+4. **OCR Workflow & UI**:
+   - Enhanced `OcrPanel.tsx` displays active provider status, estimated segment count, segment progress, cancel button (`AbortController`), retry triggers for failed segments, and interactive region text/bbox editing.
 
 ---
 
-## 5. Recommended Implementation Roadmap
+### B. Manual Real-Provider Verification Procedure
+To test AI OCR with a real API key:
 
-To maintain stability, existing tests, and GitHub Pages compatibility, implementation should proceed in clear, modular phases:
+1. **Launch Application**:
+   Open StudioEditor in a browser (e.g. `npm run dev` or deployed site).
 
-### Phase 1: Core Photoshop Lite Expansion (Next Step)
-1. Add Text Tool (`T`) to toolbar with Konva on-canvas interactive text rendering, rotation, and move handles.
-2. Add Eyedropper tool (`I`) for canvas color picking.
-3. Implement Crop, Canvas Resize, and Image Rotate (90°/180°/Flip).
-4. Add basic Image Adjustments (Brightness, Contrast, Hue, Saturation, Invert).
-5. Add WebP single-page export format.
+2. **Configure API Key**:
+   - Go to `Scanlation` -> `API & OCR Provider Settings...` in the MenuBar (or click the `Settings` button in the OCR panel).
+   - Select your provider:
+     - **Google Gemini API**: Enter your Gemini API key (e.g. `AIzaSy...`), select model `gemini-1.5-flash`.
+     - **OpenAI API**: Enter your OpenAI API key (e.g. `sk-...`), select model `gpt-4o-mini`.
+     - **OpenAI-Compatible (e.g. SumoPod)**: Enter key, base URL (e.g. `https://api.sumopod.com/v1`), model name.
+   - Click **Test API Connection**. Verify success message appears.
+   - Click **Save Settings**.
 
-### Phase 2: Multi-Page & Advanced Export Pipeline
-1. Add Multi-Page project manager with a page thumbnail sidebar strip (add page, remove page, reorder pages).
-2. Integrate `jspdf` for multi-page PDF export.
-3. Integrate `jszip` for batch exporting pages as a single ZIP archive.
+3. **Open a Long Manhwa Image**:
+   - Click `File` -> `Open Image...` and select a long vertical webtoon/manhwa page (e.g., 1080x4000px).
+   - Note the OCR panel indicating estimated segment count (e.g. `→ 3 segments`).
 
-### Phase 3: Scanlation Typesetting & Cleaning
-1. Enhance Typesetting Engine: Outline/stroke text, bubble fitting/word wrap, vertical text support, custom web fonts.
-2. Implement Manual Inpainting & Cleaning Mask Layer with AI Inpainting Preview Accept/Reject interface.
-
-### Phase 4: OCR & Integrated Translation Workflow
-1. Integrate Tesseract.js / MangaOCR service for speech bubble text extraction.
-2. Create Translation Panel: Side-by-side source OCR text, translation editor, and single-click "Typeset to Canvas" conversion.
-
----
-
-## 6. Audit Summary
-
-The existing StudioEditor codebase provides a solid, well-tested foundation with clean architecture, protected layers, full-resolution offscreen rendering, and reliable local IndexedDB storage.
-
-All 17 unit tests and the production build pass cleanly. The roadmap above outlines how to expand StudioEditor into a comprehensive, professional Photoshop Lite + Scanlation editor without breaking existing features or GitHub Pages deployment.
+4. **Run Segmented OCR**:
+   - Click **Run Segmented OCR**.
+   - Watch the progress bar advance per segment (`Processing segment 1 of 3...`).
+   - Review detected text and tightly fitted bounding boxes on the canvas stage.
+   - Verify that speech bubble text is extracted without full-page boxes or duplicate entries across segment boundaries.
+   - Edit recognized text or resize bounding box handles directly on canvas.

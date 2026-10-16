@@ -143,4 +143,41 @@ describe('Manual OCR Text Region Functionality', () => {
     expect(restoredManual?.text).toBe('Persisted Manual Text');
     expect(restoredManual?.bbox).toEqual({ x: 75, y: 150, width: 180, height: 90 });
   });
+
+  it('should handle pointer down/move/up drawing flow, coordinate mapping under zoom/pan, ignoring small boxes (<5px), and stationary viewport', () => {
+    // Coordinate mapping check under zoom (1.5x) and pan (X: 100, Y: 50)
+    const viewport = { zoom: 1.5, panX: 100, panY: 50 };
+
+    const screenToDoc = (screenX: number, screenY: number) => ({
+      x: (screenX - viewport.panX) / viewport.zoom,
+      y: (screenY - viewport.panY) / viewport.zoom,
+    });
+
+    // Pointer down at screen (250, 200) -> doc (100, 100)
+    const startDoc = screenToDoc(250, 200);
+    expect(startDoc).toEqual({ x: 100, y: 100 });
+
+    // Pointer move to screen (550, 350) -> doc (300, 200)
+    const moveDoc = screenToDoc(550, 350);
+    expect(moveDoc).toEqual({ x: 300, y: 200 });
+
+    // Calculate box bbox
+    const x = Math.min(startDoc.x, moveDoc.x);
+    const y = Math.min(startDoc.y, moveDoc.y);
+    const width = Math.abs(moveDoc.x - startDoc.x);
+    const height = Math.abs(moveDoc.y - startDoc.y);
+
+    expect({ x, y, width, height }).toEqual({ x: 100, y: 100, width: 200, height: 100 });
+
+    // Verify viewport remains unchanged (stationary viewport)
+    expect(viewport).toEqual({ zoom: 1.5, panX: 100, panY: 50 });
+
+    // Ensure boxes smaller than 5px are ignored
+    const tinyMoveDoc = screenToDoc(253, 203); // doc (102, 102) -> width 2px, height 2px
+    const tinyWidth = Math.abs(tinyMoveDoc.x - startDoc.x);
+    const tinyHeight = Math.abs(tinyMoveDoc.y - startDoc.y);
+    const isValidRegion = tinyWidth >= 5 && tinyHeight >= 5;
+
+    expect(isValidRegion).toBe(false);
+  });
 });

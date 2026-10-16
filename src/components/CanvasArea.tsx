@@ -293,6 +293,15 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
     const stage = e.target.getStage();
     if (!stage) return;
 
+    if (isDrawingManualRegion) {
+      e.evt.preventDefault();
+      const docPos = getDocCoordinates(stage);
+      if (docPos) {
+        onCanvasPointerDown(docPos.x, docPos.y, e);
+      }
+      return;
+    }
+
     if (activeTool === 'hand' || e.evt.button === 1) {
       isDraggingHandRef.current = true;
       setIsDraggingHand(true);
@@ -328,6 +337,16 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
     const stage = e.target.getStage();
     if (!stage) return;
 
+    if (isDrawingManualRegion) {
+      e.evt.preventDefault();
+      const docPos = getDocCoordinates(stage);
+      if (docPos) {
+        onCursorMove(docPos);
+        onCanvasPointerMove(docPos.x, docPos.y, e);
+      }
+      return;
+    }
+
     if (isDraggingHandRef.current && lastPanPosRef.current) {
       const dx = e.evt.clientX - lastPanPosRef.current.x;
       const dy = e.evt.clientY - lastPanPosRef.current.y;
@@ -349,6 +368,18 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   };
 
   const handlePointerUp = (e: Konva.KonvaEventObject<PointerEvent>) => {
+    if (isDrawingManualRegion) {
+      e.evt.preventDefault();
+      const stage = e.target.getStage();
+      if (stage) {
+        const docPos = getDocCoordinates(stage);
+        if (docPos) {
+          onCanvasPointerUp(docPos.x, docPos.y, e);
+        }
+      }
+      return;
+    }
+
     if (isDraggingHandRef.current) {
       isDraggingHandRef.current = false;
       setIsDraggingHand(false);
@@ -603,6 +634,7 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
                       strokeWidth={isSelected ? 2 / viewport.zoom : 1.5 / viewport.zoom}
                       dash={isSelected ? undefined : [4 / viewport.zoom, 4 / viewport.zoom]}
                       fill={fillColor}
+                      listening={!isDrawingManualRegion}
                       draggable={isSelected && !isDrawingManualRegion}
                       onClick={(e) => {
                         if (isDrawingManualRegion) return;
@@ -659,6 +691,7 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
               <Transformer
                 ref={ocrTransformerRef}
                 rotateEnabled={false}
+                listening={!isDrawingManualRegion}
                 boundBoxFunc={(oldBox, newBox) => {
                   if (Math.abs(newBox.width) < 5 || Math.abs(newBox.height) < 5) {
                     return oldBox;

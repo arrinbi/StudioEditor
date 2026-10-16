@@ -68,6 +68,8 @@ interface CanvasAreaProps {
   document: DocumentState;
   viewport: ViewportState;
   activeTool: ToolType;
+  isDrawingManualRegion?: boolean;
+  manualRegionDraft?: { x: number; y: number; width: number; height: number } | null;
   onViewportChange: (newViewport: ViewportState) => void;
   onCursorMove: (pos: { x: number; y: number } | null) => void;
   onCanvasPointerDown: (docX: number, docY: number, evt: Konva.KonvaEventObject<PointerEvent>) => void;
@@ -94,6 +96,8 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   document,
   viewport,
   activeTool,
+  isDrawingManualRegion = false,
+  manualRegionDraft,
   onViewportChange,
   onCursorMove,
   onCanvasPointerDown,
@@ -399,7 +403,9 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
   };
 
   const cursorStyle =
-    activeTool === 'hand'
+    isDrawingManualRegion
+      ? 'crosshair'
+      : activeTool === 'hand'
       ? isDraggingHand
         ? 'grabbing'
         : 'grab'
@@ -551,11 +557,37 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
           </Layer>
 
           {/* OCR Bounding Boxes Layer */}
-          {ocrRegions && ocrRegions.length > 0 && (
+          {((ocrRegions && ocrRegions.length > 0) || manualRegionDraft) && (
             <Layer>
-              {ocrRegions.map((region, idx) => {
+              {ocrRegions?.map((region, idx) => {
                 const isSelected = region.id === selectedOcrRegionId;
-                const labelText = `[${idx + 1}] ${region.text.slice(0, 16)}${region.text.length > 16 ? '...' : ''}`;
+                const isManual = region.source === 'manual';
+                const labelText = `[${idx + 1}${isManual ? ' Manual' : ''}] ${region.text.slice(0, 16)}${region.text.length > 16 ? '...' : ''}`;
+
+                const strokeColor = isManual
+                  ? isSelected
+                    ? '#a855f7'
+                    : '#c084fc'
+                  : isSelected
+                  ? '#0ea5e9'
+                  : '#f59e0b';
+
+                const fillColor = isManual
+                  ? isSelected
+                    ? 'rgba(168, 85, 247, 0.28)'
+                    : 'rgba(192, 132, 252, 0.15)'
+                  : isSelected
+                  ? 'rgba(14, 165, 233, 0.25)'
+                  : 'rgba(245, 158, 11, 0.12)';
+
+                const textColor = isManual
+                  ? isSelected
+                    ? '#c084fc'
+                    : '#e9d5ff'
+                  : isSelected
+                  ? '#38bdf8'
+                  : '#fbbf24';
+
                 return (
                   <React.Fragment key={region.id}>
                     <Rect
@@ -567,16 +599,18 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
                       y={region.bbox.y}
                       width={region.bbox.width}
                       height={region.bbox.height}
-                      stroke={isSelected ? '#0ea5e9' : '#f59e0b'}
+                      stroke={strokeColor}
                       strokeWidth={isSelected ? 2 / viewport.zoom : 1.5 / viewport.zoom}
                       dash={isSelected ? undefined : [4 / viewport.zoom, 4 / viewport.zoom]}
-                      fill={isSelected ? 'rgba(14, 165, 233, 0.25)' : 'rgba(245, 158, 11, 0.12)'}
-                      draggable={isSelected}
+                      fill={fillColor}
+                      draggable={isSelected && !isDrawingManualRegion}
                       onClick={(e) => {
+                        if (isDrawingManualRegion) return;
                         e.cancelBubble = true;
                         onSelectOcrRegion?.(region.id);
                       }}
                       onTap={(e) => {
+                        if (isDrawingManualRegion) return;
                         e.cancelBubble = true;
                         onSelectOcrRegion?.(region.id);
                       }}
@@ -589,12 +623,38 @@ export const CanvasArea: React.FC<CanvasAreaProps> = ({
                       text={labelText}
                       fontSize={11 / viewport.zoom}
                       fontFamily="sans-serif"
-                      fill={isSelected ? '#38bdf8' : '#fbbf24'}
+                      fill={textColor}
                       listening={false}
                     />
                   </React.Fragment>
                 );
               })}
+
+              {/* Draft Manual Region preview when drawing */}
+              {manualRegionDraft && (
+                <>
+                  <Rect
+                    x={manualRegionDraft.x}
+                    y={manualRegionDraft.y}
+                    width={manualRegionDraft.width}
+                    height={manualRegionDraft.height}
+                    stroke="#c084fc"
+                    strokeWidth={2 / viewport.zoom}
+                    dash={[4 / viewport.zoom, 4 / viewport.zoom]}
+                    fill="rgba(192, 132, 252, 0.25)"
+                    listening={false}
+                  />
+                  <KonvaText
+                    x={manualRegionDraft.x}
+                    y={Math.max(0, manualRegionDraft.y - 14 / viewport.zoom)}
+                    text="[New Manual Region]"
+                    fontSize={11 / viewport.zoom}
+                    fontFamily="sans-serif"
+                    fill="#e9d5ff"
+                    listening={false}
+                  />
+                </>
+              )}
 
               <Transformer
                 ref={ocrTransformerRef}

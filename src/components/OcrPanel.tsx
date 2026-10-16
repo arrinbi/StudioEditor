@@ -35,6 +35,7 @@ interface OcrPanelProps {
   isCropOcrRunning?: boolean;
   onUpdatePage: (updater: (prevPage: Page) => Page, description?: string) => void;
   onSelectOcrRegion: (regionId: string | null) => void;
+  onRunOcrOnRegion?: (regionId: string) => void;
   onUpdateText: (regionId: string, newText: string) => void;
   onUpdateBBox: (
     regionId: string,
@@ -56,6 +57,7 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
   isCropOcrRunning = false,
   onUpdatePage,
   onSelectOcrRegion,
+  onRunOcrOnRegion,
   onUpdateText,
   onDeleteRegion,
   onClearAllRegions,
@@ -455,6 +457,20 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                       >
                         {region.confidence}% conf
                       </span>
+                    )}
+                    {onRunOcrOnRegion && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRunOcrOnRegion(region.id);
+                        }}
+                        disabled={isProcessing || isCropOcrRunning}
+                        className="text-[10px] text-sky-400 hover:text-sky-300 flex items-center space-x-0.5 cursor-pointer disabled:opacity-50 px-1 py-0.5 bg-sky-950/40 hover:bg-sky-900/60 border border-sky-800/50 rounded transition"
+                        title="Recognize text in this region with OCR"
+                      >
+                        <Sparkles className="w-3 h-3 text-sky-400" />
+                        <span>Run OCR</span>
+                      </button>
                     )}
                     <button
                       onClick={(e) => {

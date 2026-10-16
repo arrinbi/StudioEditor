@@ -56,6 +56,7 @@ interface RightPanelsProps {
   isCropOcrRunning?: boolean;
   onUpdatePage?: (updater: (prevPage: Page) => Page, description?: string) => void;
   onSelectOcrRegion?: (regionId: string | null) => void;
+  onRunOcrOnRegion?: (regionId: string) => void;
   onUpdateOcrText?: (regionId: string, newText: string) => void;
   onUpdateOcrBBox?: (
     regionId: string,
@@ -263,6 +264,7 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
               isCropOcrRunning={props.isCropOcrRunning}
               onUpdatePage={props.onUpdatePage || (() => {})}
               onSelectOcrRegion={props.onSelectOcrRegion || (() => {})}
+              onRunOcrOnRegion={props.onRunOcrOnRegion}
               onUpdateText={props.onUpdateOcrText || (() => {})}
               onUpdateBBox={props.onUpdateOcrBBox || (() => {})}
               onDeleteRegion={props.onDeleteOcrRegion || (() => {})}

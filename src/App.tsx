@@ -270,6 +270,39 @@ export function App() {
     updateActivePage((prev) => selectOcrRegion(prev, regionId));
   }, [updateActivePage]);
 
+  const handleRunOcrOnRegion = useCallback(async (regionId: string) => {
+    const targetRegion = activePage.ocrRegions?.find((r) => r.id === regionId);
+    if (!targetRegion) return;
+
+    setIsCropOcrRunning(true);
+    try {
+      const fullSourceCanvas = extractOcrSourceCanvas(
+        activePage,
+        ocrScope === 'composite' ? null : ocrScope
+      );
+      const cropped = cropCanvasRegion(fullSourceCanvas, targetRegion.bbox);
+      const currentConfig = getOcrConfig();
+
+      const recognizedRegions = await runCropOcrEngine(cropped, targetRegion.bbox, {
+        lang: (currentConfig.model || 'eng+ind') as 'eng' | 'ind' | 'eng+ind',
+        pageId: activePage.id,
+        sourceWidth: activePage.width,
+        sourceHeight: activePage.height,
+        config: currentConfig,
+      });
+
+      const recognizedText = recognizedRegions.map((r) => r.text).filter(Boolean).join('\n').trim();
+
+      if (recognizedText) {
+        updateActivePage((prev) => updateOcrRegionText(prev, regionId, recognizedText), 'Recognize Region OCR Text');
+      }
+    } catch (err) {
+      console.error('Failed to recognize region text:', err);
+    } finally {
+      setIsCropOcrRunning(false);
+    }
+  }, [activePage, ocrScope, updateActivePage]);
+
   const handleUpdateOcrText = useCallback((regionId: string, newText: string) => {
     updateActivePage((prev) => updateOcrRegionText(prev, regionId, newText), 'Edit OCR Text');
   }, [updateActivePage]);
@@ -1016,46 +1049,22 @@ export function App() {
           height: Math.round(finalDraft.height),
         };
 
+        const newManualRegion = {
+          id: `manual_ocr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          pageId: activePage.id,
+          text: '',
+          confidence: 100,
+          bbox: targetBBox,
+          sourceWidth: activePage.width,
+          sourceHeight: activePage.height,
+          source: 'manual' as const,
+        };
+
         setRightPanelTab('ocr');
-        setIsCropOcrRunning(true);
-
-        (async () => {
-          try {
-            const fullSourceCanvas = extractOcrSourceCanvas(
-              activePage,
-              ocrScope === 'composite' ? null : ocrScope
-            );
-            const cropped = cropCanvasRegion(fullSourceCanvas, targetBBox);
-            const currentConfig = getOcrConfig();
-
-            const recognizedRegions = await runCropOcrEngine(cropped, targetBBox, {
-              lang: (currentConfig.model || 'eng+ind') as 'eng' | 'ind' | 'eng+ind',
-              pageId: activePage.id,
-              sourceWidth: activePage.width,
-              sourceHeight: activePage.height,
-              config: currentConfig,
-            });
-
-            updateActivePage((prev) => addOcrRegions(prev, recognizedRegions, 'merge'), 'Add Manual OCR Region');
-          } catch (err) {
-            console.error('Crop OCR failed:', err);
-            // Fallback: create empty region on error
-            updateActivePage((prev) => addOcrRegions(prev, [
-              {
-                id: `manual_ocr_fallback_${Date.now()}`,
-                pageId: activePage.id,
-                text: '',
-                confidence: 100,
-                bbox: targetBBox,
-                sourceWidth: activePage.width,
-                sourceHeight: activePage.height,
-                source: 'manual',
-              }
-            ], 'merge'), 'Add Manual Text Region (Fallback)');
-          } finally {
-            setIsCropOcrRunning(false);
-          }
-        })();
+        updateActivePage((prev) => {
+          const updated = addOcrRegions(prev, [newManualRegion], 'merge');
+          return selectOcrRegion(updated, newManualRegion.id);
+        }, 'Add Manual Text Region');
       }
       return;
     }
@@ -1226,6 +1235,7 @@ export function App() {
           isCropOcrRunning={isCropOcrRunning}
           onUpdatePage={updateActivePage}
           onSelectOcrRegion={handleSelectOcrRegion}
+          onRunOcrOnRegion={handleRunOcrOnRegion}
           onUpdateOcrText={handleUpdateOcrText}
           onUpdateOcrBBox={handleUpdateOcrBBox}
           onDeleteOcrRegion={handleDeleteOcrRegion}

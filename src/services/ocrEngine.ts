@@ -180,6 +180,105 @@ export async function runOcrEngine(
   return finalRegions;
 }
 
+/**
+ * Runs OCR on a specifically cropped region of the source canvas.
+ * Maps relative coordinates from the cropped image back to full-page pixel coordinates.
+ */
+export async function runCropOcrEngine(
+  croppedCanvas: HTMLCanvasElement,
+  cropBBox: { x: number; y: number; width: number; height: number },
+  options: RunOcrOptions
+): Promise<OcrRegion[]> {
+  const normX = Math.round(cropBBox.x);
+  const normY = Math.round(cropBBox.y);
+  const normW = Math.max(5, Math.round(cropBBox.width));
+  const normH = Math.max(5, Math.round(cropBBox.height));
+
+  const config = options.config || getOcrConfig();
+
+  // If using local Tesseract or fallback, run directly on cropped canvas to ensure precise local OCR
+  let rawRegions: OcrRegion[] = [];
+  if (config.provider === 'tesseract') {
+    rawRegions = await runTesseractFallback(croppedCanvas, {
+      ...options,
+      sourceWidth: normW,
+      sourceHeight: normH,
+    });
+  } else {
+    // For AI vision adapters or mock engine
+    if (mockOcrFn) {
+      rawRegions = await mockOcrFn(croppedCanvas, {
+        ...options,
+        sourceWidth: normW,
+        sourceHeight: normH,
+      });
+    } else {
+      const adapter = getOcrAdapter(config.provider);
+      rawRegions = await adapter.recognizeSegment(
+        {
+          canvas: croppedCanvas,
+          segmentIndex: 0,
+          totalSegments: 1,
+          offsetX: 0,
+          offsetY: 0,
+          segmentWidth: normW,
+          segmentHeight: normH,
+          sourceWidth: options.sourceWidth,
+          sourceHeight: options.sourceHeight,
+          pageId: options.pageId,
+        },
+        config,
+        options.signal
+      );
+    }
+  }
+
+  // Filter out empty results and map relative crop coordinates back to full page
+  const mappedRegions: OcrRegion[] = [];
+  for (const r of rawRegions) {
+    if (r.text && r.text.trim().length > 0) {
+      mappedRegions.push({
+        ...r,
+        id: r.id || `ocr_crop_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        pageId: options.pageId,
+        bbox: {
+          x: normX + Math.round(r.bbox.x),
+          y: normY + Math.round(r.bbox.y),
+          width: Math.max(5, Math.round(r.bbox.width)),
+          height: Math.max(5, Math.round(r.bbox.height)),
+        },
+        sourceWidth: options.sourceWidth,
+        sourceHeight: options.sourceHeight,
+        source: r.source || 'ocr',
+      });
+    }
+  }
+
+  // If OCR recognized text inside crop, return mapped regions
+  if (mappedRegions.length > 0) {
+    return mappedRegions;
+  }
+
+  // Fallback: If OCR produced no text, return a single region covering the user's selected box
+  return [
+    {
+      id: `manual_ocr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      pageId: options.pageId,
+      text: '',
+      confidence: 100,
+      bbox: {
+        x: normX,
+        y: normY,
+        width: normW,
+        height: normH,
+      },
+      sourceWidth: options.sourceWidth,
+      sourceHeight: options.sourceHeight,
+      source: 'manual',
+    },
+  ];
+}
+
 export async function runTesseractFallback(
   imageSource: HTMLCanvasElement | HTMLImageElement | string,
   options: RunOcrOptions

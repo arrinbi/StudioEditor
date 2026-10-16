@@ -51,6 +51,9 @@ interface RightPanelsProps {
   isDrawingManualRegion?: boolean;
   onStartDrawManualRegion?: () => void;
   onCancelDrawManualRegion?: () => void;
+  ocrScope?: 'composite' | string;
+  onOcrScopeChange?: (scope: 'composite' | string) => void;
+  isCropOcrRunning?: boolean;
   onUpdatePage?: (updater: (prevPage: Page) => Page, description?: string) => void;
   onSelectOcrRegion?: (regionId: string | null) => void;
   onUpdateOcrText?: (regionId: string, newText: string) => void;
@@ -255,6 +258,9 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
               isDrawingManualRegion={props.isDrawingManualRegion}
               onStartDrawManualRegion={props.onStartDrawManualRegion}
               onCancelDrawManualRegion={props.onCancelDrawManualRegion}
+              scope={props.ocrScope}
+              onScopeChange={props.onOcrScopeChange}
+              isCropOcrRunning={props.isCropOcrRunning}
               onUpdatePage={props.onUpdatePage || (() => {})}
               onSelectOcrRegion={props.onSelectOcrRegion || (() => {})}
               onUpdateText={props.onUpdateOcrText || (() => {})}

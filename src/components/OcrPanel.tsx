@@ -19,12 +19,17 @@ import {
   XCircle,
   RotateCcw,
   Info,
+  PlusCircle,
+  MousePointerClick,
 } from 'lucide-react';
 
 interface OcrPanelProps {
   page: Page;
   layers: Layer[];
   activeLayerId?: string | null;
+  isDrawingManualRegion?: boolean;
+  onStartDrawManualRegion?: () => void;
+  onCancelDrawManualRegion?: () => void;
   onUpdatePage: (updater: (prevPage: Page) => Page, description?: string) => void;
   onSelectOcrRegion: (regionId: string | null) => void;
   onUpdateText: (regionId: string, newText: string) => void;
@@ -40,6 +45,9 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
   page,
   layers,
   activeLayerId: _activeLayerId,
+  isDrawingManualRegion = false,
+  onStartDrawManualRegion,
+  onCancelDrawManualRegion,
   onUpdatePage,
   onSelectOcrRegion,
   onUpdateText,
@@ -233,33 +241,60 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex space-x-2">
-          <button
-            onClick={() => handleRunOcr()}
-            disabled={isProcessing}
-            className="flex-1 py-2 px-3 rounded bg-sky-600 hover:bg-sky-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-medium text-xs flex items-center justify-center space-x-2 transition shadow"
-          >
-            {isProcessing ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Processing...</span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Run Segmented OCR</span>
-              </>
-            )}
-          </button>
-
-          {isProcessing && (
+        <div className="flex flex-col space-y-2">
+          <div className="flex space-x-2">
             <button
-              onClick={handleCancelOcr}
-              title="Cancel OCR Process"
-              className="px-3 py-2 bg-rose-900/80 hover:bg-rose-800 text-rose-200 rounded text-xs font-medium flex items-center space-x-1"
+              onClick={() => handleRunOcr()}
+              disabled={isProcessing || isDrawingManualRegion}
+              className="flex-1 py-2 px-3 rounded bg-sky-600 hover:bg-sky-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-medium text-xs flex items-center justify-center space-x-2 transition shadow"
             >
-              <XCircle className="w-3.5 h-3.5" />
-              <span>Cancel</span>
+              {isProcessing ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Processing...</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Run Segmented OCR</span>
+                </>
+              )}
+            </button>
+
+            {isProcessing && (
+              <button
+                onClick={handleCancelOcr}
+                title="Cancel OCR Process"
+                className="px-3 py-2 bg-rose-900/80 hover:bg-rose-800 text-rose-200 rounded text-xs font-medium flex items-center space-x-1"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Cancel</span>
+              </button>
+            )}
+          </div>
+
+          {/* Manual Text Region Button */}
+          {isDrawingManualRegion ? (
+            <div className="p-2 bg-purple-950/80 border border-purple-600/80 rounded-lg flex items-center justify-between text-xs text-purple-200 animate-pulse">
+              <div className="flex items-center space-x-1.5">
+                <MousePointerClick className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="font-medium text-[11px]">Click & drag on canvas to draw box</span>
+              </div>
+              <button
+                onClick={onCancelDrawManualRegion}
+                className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded text-[10px] font-semibold transition shrink-0 ml-1"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onStartDrawManualRegion}
+              disabled={isProcessing}
+              className="w-full py-1.5 px-3 rounded bg-purple-700/80 hover:bg-purple-600 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-medium text-xs flex items-center justify-center space-x-2 transition shadow border border-purple-500/30"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-purple-300" />
+              <span>Add Text Region (Manual OCR)</span>
             </button>
           )}
         </div>
@@ -337,13 +372,18 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
         ) : (
           ocrRegions.map((region, index) => {
             const isSelected = region.id === selectedRegionId;
+            const isManual = region.source === 'manual';
+            const isEmptyText = !region.text || region.text.trim().length === 0;
+
             return (
               <div
                 key={region.id}
                 onClick={() => onSelectOcrRegion(region.id)}
                 className={`p-2.5 rounded-lg border transition-all cursor-pointer ${
                   isSelected
-                    ? 'bg-sky-950/40 border-sky-500 shadow-lg'
+                    ? isManual
+                      ? 'bg-purple-950/40 border-purple-500 shadow-lg'
+                      : 'bg-sky-950/40 border-sky-500 shadow-lg'
                     : 'bg-zinc-800/60 border-zinc-700/80 hover:bg-zinc-800 hover:border-zinc-600'
                 }`}
               >
@@ -353,28 +393,44 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                     <span
                       className={`font-mono font-bold px-1.5 py-0.5 rounded text-[10px] ${
                         isSelected
-                          ? 'bg-sky-500 text-white'
+                          ? isManual
+                            ? 'bg-purple-600 text-white'
+                            : 'bg-sky-500 text-white'
+                          : isManual
+                          ? 'bg-purple-500/20 text-purple-300'
                           : 'bg-amber-500/20 text-amber-400'
                       }`}
                     >
                       #{index + 1}
                     </span>
-                    <span className="text-zinc-400 font-mono">
+                    {isManual && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        Manual
+                      </span>
+                    )}
+                    {isEmptyText && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Empty Text
+                      </span>
+                    )}
+                    <span className="text-zinc-400 font-mono text-[9px]">
                       ({region.bbox.x}, {region.bbox.y}) {region.bbox.width}x{region.bbox.height}
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span
-                      className={`font-mono font-medium ${
-                        region.confidence >= 80
-                          ? 'text-emerald-400'
-                          : region.confidence >= 50
-                          ? 'text-amber-400'
-                          : 'text-zinc-400'
-                      }`}
-                    >
-                      {region.confidence}% conf
-                    </span>
+                    {!isManual && (
+                      <span
+                        className={`font-mono font-medium ${
+                          region.confidence >= 80
+                            ? 'text-emerald-400'
+                            : region.confidence >= 50
+                            ? 'text-amber-400'
+                            : 'text-zinc-400'
+                        }`}
+                      >
+                        {region.confidence}% conf
+                      </span>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -394,8 +450,12 @@ export const OcrPanel: React.FC<OcrPanelProps> = ({
                   onChange={(e) => onUpdateText(region.id, e.target.value)}
                   onClick={(e) => e.stopPropagation()}
                   rows={2}
-                  className="w-full bg-zinc-900 border border-zinc-700/80 rounded p-1.5 text-xs text-zinc-100 focus:outline-none focus:border-sky-500 font-sans leading-relaxed resize-y"
-                  placeholder="Recognized text..."
+                  className={`w-full bg-zinc-900 border rounded p-1.5 text-xs text-zinc-100 focus:outline-none font-sans leading-relaxed resize-y ${
+                    isManual
+                      ? 'border-purple-800/80 focus:border-purple-500'
+                      : 'border-zinc-700/80 focus:border-sky-500'
+                  }`}
+                  placeholder={isManual ? 'Enter manual region text...' : 'Recognized text...'}
                 />
               </div>
             );

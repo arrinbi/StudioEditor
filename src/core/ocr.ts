@@ -14,17 +14,20 @@ export function addOcrRegions(
   let updatedRegions: OcrRegion[];
 
   if (mode === 'replace') {
-    updatedRegions = [...newRegions];
+    // In replace mode, replace automated OCR regions while preserving manually created regions
+    const manualRegions = existing.filter((r) => r.source === 'manual');
+    updatedRegions = [...manualRegions, ...newRegions];
   } else {
-    // Merge mode: append new regions, avoiding exact duplicates by bbox & text
+    // Merge mode: append new regions, avoiding exact duplicates by ID or bbox & text
     const filteredNew = newRegions.filter((nr) => {
       return !existing.some(
         (er) =>
-          er.text === nr.text &&
-          Math.abs(er.bbox.x - nr.bbox.x) < 5 &&
-          Math.abs(er.bbox.y - nr.bbox.y) < 5 &&
-          Math.abs(er.bbox.width - nr.bbox.width) < 5 &&
-          Math.abs(er.bbox.height - nr.bbox.height) < 5
+          er.id === nr.id ||
+          (er.text === nr.text &&
+            Math.abs(er.bbox.x - nr.bbox.x) < 5 &&
+            Math.abs(er.bbox.y - nr.bbox.y) < 5 &&
+            Math.abs(er.bbox.width - nr.bbox.width) < 5 &&
+            Math.abs(er.bbox.height - nr.bbox.height) < 5)
       );
     });
     updatedRegions = [...existing, ...filteredNew];
@@ -34,6 +37,46 @@ export function addOcrRegions(
     ...page,
     ocrRegions: updatedRegions,
     selectedOcrRegionId: updatedRegions.length > 0 ? updatedRegions[0].id : null,
+  };
+}
+
+/**
+ * Adds a manually created text region to a page.
+ */
+export function addManualOcrRegion(
+  page: Page,
+  bbox: { x: number; y: number; width: number; height: number },
+  text: string = ''
+): { page: Page; regionId: string } {
+  const existing = page.ocrRegions || [];
+  const normalizedBBox = {
+    x: Math.round(bbox.x),
+    y: Math.round(bbox.y),
+    width: Math.max(5, Math.round(bbox.width)),
+    height: Math.max(5, Math.round(bbox.height)),
+  };
+
+  const newId = `manual_region_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const manualRegion: OcrRegion = {
+    id: newId,
+    pageId: page.id,
+    text,
+    confidence: 100,
+    bbox: normalizedBBox,
+    sourceWidth: page.width,
+    sourceHeight: page.height,
+    source: 'manual',
+  };
+
+  const updatedRegions = [...existing, manualRegion];
+
+  return {
+    page: {
+      ...page,
+      ocrRegions: updatedRegions,
+      selectedOcrRegionId: newId,
+    },
+    regionId: newId,
   };
 }
 

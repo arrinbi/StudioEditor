@@ -48,6 +48,9 @@ interface RightPanelsProps {
   onDeletePage: (pageId: string) => void;
   onReorderPage: (fromIndex: number, toIndex: number) => void;
   activePage?: Page;
+  isDrawingManualRegion?: boolean;
+  onStartDrawManualRegion?: () => void;
+  onCancelDrawManualRegion?: () => void;
   onUpdatePage?: (updater: (prevPage: Page) => Page, description?: string) => void;
   onSelectOcrRegion?: (regionId: string | null) => void;
   onUpdateOcrText?: (regionId: string, newText: string) => void;
@@ -249,6 +252,9 @@ export const RightPanels: React.FC<RightPanelsProps> = (props) => {
               page={activePageObj}
               layers={props.layers}
               activeLayerId={props.activeLayerId}
+              isDrawingManualRegion={props.isDrawingManualRegion}
+              onStartDrawManualRegion={props.onStartDrawManualRegion}
+              onCancelDrawManualRegion={props.onCancelDrawManualRegion}
               onUpdatePage={props.onUpdatePage || (() => {})}
               onSelectOcrRegion={props.onSelectOcrRegion || (() => {})}
               onUpdateText={props.onUpdateOcrText || (() => {})}

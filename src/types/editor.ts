@@ -98,6 +98,7 @@ export interface OcrRegion {
   };
   sourceWidth: number;
   sourceHeight: number;
+  source?: 'ocr' | 'manual';
   translatedText?: string;
 }
 

@@ -63,6 +63,7 @@ import {
   deleteOcrRegion,
   clearAllOcrRegions,
   selectOcrRegion,
+  addManualOcrRegion,
 } from './core/ocr';
 import { calculateFitToScreenViewport } from './utils/viewport';
 import { saveProjectStateToIDB, getProjectsFromIDB, loadProjectFromIDB } from './services/storage';
@@ -118,6 +119,11 @@ export function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+
+  // Manual OCR Region Drawing State
+  const [isDrawingManualRegion, setIsDrawingManualRegion] = useState(false);
+  const [manualRegionDraft, setManualRegionDraft] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const manualRegionStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Per-page History Managers
   const historyMapRef = useRef<Map<string, HistoryManager>>(new Map());
@@ -801,6 +807,9 @@ export function App() {
       if (e.key === 'Escape') {
         handleDeselect();
         setEditingTextLayerId(null);
+        setIsDrawingManualRegion(false);
+        setManualRegionDraft(null);
+        manualRegionStartRef.current = null;
         return;
       }
 
@@ -844,6 +853,12 @@ export function App() {
   }, [handleUndo, handleRedo, handleSelectAll, handleDeselect, handleDeleteLayer, activeDocument.activeLayerId]);
 
   const handleCanvasPointerDown = (docX: number, docY: number) => {
+    if (isDrawingManualRegion) {
+      manualRegionStartRef.current = { x: docX, y: docY };
+      setManualRegionDraft({ x: docX, y: docY, width: 0, height: 0 });
+      return;
+    }
+
     const activeLayer = activeDocument.layers.find((l) => l.id === activeDocument.activeLayerId);
 
     if (activeTool === 'eyedropper') {
@@ -914,6 +929,17 @@ export function App() {
   };
 
   const handleCanvasPointerMove = (docX: number, docY: number) => {
+    if (isDrawingManualRegion && manualRegionStartRef.current) {
+      const start = manualRegionStartRef.current;
+      const x = Math.min(start.x, docX);
+      const y = Math.min(start.y, docY);
+      const width = Math.abs(docX - start.x);
+      const height = Math.abs(docY - start.y);
+
+      setManualRegionDraft({ x, y, width, height });
+      return;
+    }
+
     const activeLayer = activeDocument.layers.find((l) => l.id === activeDocument.activeLayerId);
 
     if ((activeTool === 'brush' || activeTool === 'eraser') && isDrawingRef.current) {
@@ -960,6 +986,22 @@ export function App() {
   };
 
   const handleCanvasPointerUp = () => {
+    if (isDrawingManualRegion && manualRegionStartRef.current) {
+      const draft = manualRegionDraft;
+      manualRegionStartRef.current = null;
+      setManualRegionDraft(null);
+      setIsDrawingManualRegion(false);
+
+      if (draft && draft.width >= 5 && draft.height >= 5) {
+        updateActivePage((prev) => {
+          const { page: updatedPage } = addManualOcrRegion(prev, draft, '');
+          return updatedPage;
+        }, 'Add Manual Text Region');
+        setRightPanelTab('ocr');
+      }
+      return;
+    }
+
     if ((activeTool === 'brush' || activeTool === 'eraser') && isDrawingRef.current) {
       isDrawingRef.current = false;
       lastDrawPointRef.current = null;
@@ -1058,6 +1100,8 @@ export function App() {
           document={activeDocument}
           viewport={viewport}
           activeTool={activeTool}
+          isDrawingManualRegion={isDrawingManualRegion}
+          manualRegionDraft={manualRegionDraft}
           onViewportChange={setViewport}
           onCursorMove={setCursorPos}
           onCanvasPointerDown={handleCanvasPointerDown}
@@ -1109,6 +1153,16 @@ export function App() {
           onDeletePage={handleDeletePage}
           onReorderPage={handleReorderPage}
           activePage={activePage}
+          isDrawingManualRegion={isDrawingManualRegion}
+          onStartDrawManualRegion={() => {
+            setIsDrawingManualRegion(true);
+            setRightPanelTab('ocr');
+          }}
+          onCancelDrawManualRegion={() => {
+            setIsDrawingManualRegion(false);
+            setManualRegionDraft(null);
+            manualRegionStartRef.current = null;
+          }}
           onUpdatePage={updateActivePage}
           onSelectOcrRegion={handleSelectOcrRegion}
           onUpdateOcrText={handleUpdateOcrText}

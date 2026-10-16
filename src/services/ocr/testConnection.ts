@@ -1,4 +1,5 @@
 import type { OcrProviderConfig } from '../aiSettings';
+import { buildApiEndpointUrl } from '../aiSettings';
 
 export async function testProviderConnection(
   config: OcrProviderConfig
@@ -51,18 +52,35 @@ export async function testProviderConnection(
     }
 
     if (config.provider === 'openai' || config.provider === 'openai-compatible') {
-      const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
-      const url = `${baseUrl}/models`;
+      const defaultBase = config.provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.sumopod.com/v1';
+      const { cleanBaseUrl, requestUrl } = buildApiEndpointUrl(config.baseUrl, defaultBase, '/models');
 
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-      });
+      let res: Response;
+      try {
+        res = await fetch(requestUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+        });
+      } catch (fetchErr) {
+        const rawErrStr = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        const isNetworkError = rawErrStr.toLowerCase().includes('failed to fetch') || rawErrStr.toLowerCase().includes('networkerror');
+
+        if (isNetworkError) {
+          return {
+            success: false,
+            message: `Network/CORS error connecting to ${requestUrl}: The browser blocked the cross-origin request or the network endpoint was unreachable. (If using SumoPod/custom proxies in browser, ensure CORS headers 'Access-Control-Allow-Origin: *' are enabled, or use a local backend CORS proxy).`,
+          };
+        }
+        return {
+          success: false,
+          message: `Network error connecting to ${requestUrl}: ${rawErrStr}`,
+        };
+      }
 
       if (!res.ok) {
-        let errDetail = res.statusText;
+        let errDetail = res.statusText || `HTTP ${res.status}`;
         try {
           const errJson = await res.json();
           if (errJson?.error?.message) {
@@ -73,7 +91,9 @@ export async function testProviderConnection(
         }
         return {
           success: false,
-          message: `OpenAI API test failed (${res.status}): ${errDetail}`,
+          message: `${
+            config.provider === 'openai' ? 'OpenAI API' : 'OpenAI-Compatible Service'
+          } returned status ${res.status}: ${errDetail}`,
         };
       }
 
@@ -81,7 +101,7 @@ export async function testProviderConnection(
         success: true,
         message: `Successfully connected to ${
           config.provider === 'openai' ? 'OpenAI API' : 'OpenAI-Compatible Service'
-        } at ${baseUrl}.`,
+        } at ${cleanBaseUrl}.`,
       };
     }
 

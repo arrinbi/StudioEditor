@@ -77,6 +77,30 @@ export function saveOcrConfig(config: OcrProviderConfig): void {
   }
 }
 
+/**
+ * Sanitizes a base URL and constructs a clean endpoint URL.
+ * Strips trailing slashes and prevents duplicate path segments such as `/models` or `/chat/completions`.
+ */
+export function buildApiEndpointUrl(
+  rawBaseUrl: string | undefined,
+  defaultBaseUrl: string,
+  endpointPath: string
+): { cleanBaseUrl: string; requestUrl: string } {
+  let base = (rawBaseUrl && rawBaseUrl.trim() ? rawBaseUrl.trim() : defaultBaseUrl).replace(/\/+$/, '');
+
+  const normalizedEndpoint = endpointPath.startsWith('/') ? endpointPath : `/${endpointPath}`;
+
+  // Strip redundant endpoint suffix if user pasted full endpoint as base URL
+  if (base.endsWith(normalizedEndpoint)) {
+    base = base.slice(0, -normalizedEndpoint.length).replace(/\/+$/, '');
+  }
+
+  return {
+    cleanBaseUrl: base,
+    requestUrl: `${base}${normalizedEndpoint}`,
+  };
+}
+
 export function clearOcrApiKeys(): void {
   try {
     sessionStorage.removeItem(SETTINGS_KEY);
